@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, Search, Filter, Calendar, Download, Eye, MessageSquare, CheckCircle, Upload, XCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
+import { lawyerDocumentAPI } from '../services/mockApi';
 import {
   Table,
   TableBody,
@@ -41,14 +42,38 @@ export function LawyerDocumentView() {
   const currentLawyer = 'Luật sư Nguyễn Văn A';
   const assignedLawyer = 'Luật sư Trần Thị B'; // Randomly assigned by system
 
-  const [documents, setDocuments] = useState<Document[]>([
-    { id: '1', name: 'Luật Thuế TNCN 2024.pdf', type: 'Luật Thuế TNCN', issueDate: new Date(2024, 0, 1), uploadDate: new Date(2024, 10, 1), size: '2.4 MB', reviewStatus: 'approved', reviewDate: new Date(2024, 10, 2), feedback: 'Tài liệu chính xác, đầy đủ. Phù hợp với quy định hiện hành.', uploadedBy: assignedLawyer },
-    { id: '2', name: 'Thông tư 111-2013-TT-BTC.pdf', type: 'Thông tư', issueDate: new Date(2013, 8, 15), uploadDate: new Date(2024, 9, 20), size: '1.8 MB', reviewStatus: 'reviewed', reviewDate: new Date(2024, 9, 22), feedback: 'Đã xem xét. Cần cập nhật theo thông tư mới nhất.', uploadedBy: assignedLawyer },
-    { id: '3', name: 'Nghị định 126-2020-NĐ-CP.docx', type: 'Nghị định', issueDate: new Date(2020, 9, 19), uploadDate: new Date(2024, 9, 15), size: '956 KB', reviewStatus: 'pending', uploadedBy: assignedLawyer },
-    { id: '4', name: 'Luật Thuế GTGT 2024.pdf', type: 'Luật Thuế GTGT', issueDate: new Date(2024, 0, 1), uploadDate: new Date(2024, 9, 10), size: '3.2 MB', reviewStatus: 'approved', reviewDate: new Date(2024, 9, 12), feedback: 'Văn bản hợp lệ và cập nhật.', uploadedBy: assignedLawyer },
-    { id: '5', name: 'Hướng dẫn khai thuế DN.pdf', type: 'Hướng dẫn', issueDate: new Date(2023, 11, 1), uploadDate: new Date(2024, 8, 5), size: '1.5 MB', reviewStatus: 'pending', uploadedBy: assignedLawyer },
-    { id: '6', name: 'Tài liệu lỗi thời.pdf', type: 'Hướng dẫn', issueDate: new Date(2019, 5, 1), uploadDate: new Date(2024, 8, 1), size: '800 KB', reviewStatus: 'rejected', reviewDate: new Date(2024, 10, 8), feedback: 'Tài liệu đã lỗi thời, cần cập nhật theo quy định mới.', uploadedBy: assignedLawyer, dataScientistFeedback: 'Tài liệu không phù hợp với hệ thống hiện tại. Yêu cầu xem xét lại hoặc cập nhật.' },
-  ]);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load documents on mount
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const loadDocuments = async () => {
+    try {
+      setIsLoading(true);
+      const docs = await lawyerDocumentAPI.getDocuments();
+      const convertedDocs = docs.map(d => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        issueDate: new Date(d.issueDate),
+        uploadDate: new Date(d.uploadDate),
+        size: d.size,
+        reviewStatus: d.reviewStatus,
+        feedback: d.feedback,
+        reviewDate: d.reviewDate ? new Date(d.reviewDate) : undefined,
+        uploadedBy: d.uploadedBy,
+        dataScientistFeedback: d.dataScientistFeedback,
+      }));
+      setDocuments(convertedDocs);
+    } catch (error) {
+      console.error('Error loading documents:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -72,18 +97,35 @@ export function LawyerDocumentView() {
     return date.toLocaleDateString('vi-VN');
   };
 
-  const handleReviewSubmit = () => {
+  const handleReviewSubmit = async () => {
     if (!selectedDoc) return;
     
-    setDocuments(documents.map(doc => 
-      doc.id === selectedDoc.id 
-        ? { ...doc, reviewStatus: reviewAction, feedback: reviewFeedback, reviewDate: new Date() }
-        : doc
-    ));
-    
-    setIsReviewOpen(false);
-    setSelectedDoc(null);
-    setReviewFeedback('');
+    try {
+      // Call API to review document
+      const updatedDoc = await lawyerDocumentAPI.reviewDocument(
+        selectedDoc.id,
+        reviewAction,
+        reviewFeedback
+      );
+      
+      // Update local state
+      setDocuments(documents.map(doc => 
+        doc.id === selectedDoc.id 
+          ? {
+              ...doc,
+              reviewStatus: updatedDoc.reviewStatus,
+              feedback: updatedDoc.feedback,
+              reviewDate: updatedDoc.reviewDate ? new Date(updatedDoc.reviewDate) : undefined,
+            }
+          : doc
+      ));
+      
+      setIsReviewOpen(false);
+      setSelectedDoc(null);
+      setReviewFeedback('');
+    } catch (error) {
+      console.error('Error reviewing document:', error);
+    }
   };
 
   const openReviewDialog = (doc: Document) => {
@@ -92,9 +134,17 @@ export function LawyerDocumentView() {
     setIsReviewOpen(true);
   };
 
-  const handleRemoveDocument = (docId: string) => {
+  const handleRemoveDocument = async (docId: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa tài liệu này?')) {
-      setDocuments(documents.filter(doc => doc.id !== docId));
+      try {
+        // Call API to remove document
+        await lawyerDocumentAPI.removeDocument(docId);
+        
+        // Update local state
+        setDocuments(documents.filter(doc => doc.id !== docId));
+      } catch (error) {
+        console.error('Error removing document:', error);
+      }
     }
   };
 

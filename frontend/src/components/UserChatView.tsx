@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { userChatAPI } from '../services/mockApi';
 
 interface Message {
   id: string;
@@ -33,35 +34,51 @@ type ConversationMessages = {
 };
 
 export function UserChatView() {
-  // Initialize with sample conversations and their messages
-  const [conversations, setConversations] = useState<Conversation[]>([
-    { id: '1', timestamp: new Date(2024, 10, 3, 14, 30) },
-    { id: '2', timestamp: new Date(2024, 10, 2, 10, 15) },
-    { id: '3', timestamp: new Date(2024, 10, 1, 16, 45) },
-  ]);
-
-  const [conversationMessages, setConversationMessages] = useState<ConversationMessages>({
-    '1': [
-      { id: '1-1', text: 'Xin chào! Tôi là trợ lý AI về luật thuế Việt Nam. Tôi có thể giúp gì cho bạn?', sender: 'bot', timestamp: new Date(2024, 10, 3, 14, 25) },
-      { id: '1-2', text: 'Mức thuế suất TNCN áp dụng như thế nào?', sender: 'user', timestamp: new Date(2024, 10, 3, 14, 30) },
-      { id: '1-3', text: 'Theo Luật Thuế Thu nhập cá nhân số 04/2007/QH12, mức thuế suất TNCN được áp dụng theo biểu lũy tiến từng phần với các mức từ 5% đến 35%.', sender: 'bot', timestamp: new Date(2024, 10, 3, 14, 30) },
-    ],
-    '2': [
-      { id: '2-1', text: 'Xin chào! Tôi là trợ lý AI về luật thuế Việt Nam. Tôi có thể giúp gì cho bạn?', sender: 'bot', timestamp: new Date(2024, 10, 2, 10, 10) },
-      { id: '2-2', text: 'Hạn nộp tờ khai thuế quý là khi nào?', sender: 'user', timestamp: new Date(2024, 10, 2, 10, 15) },
-      { id: '2-3', text: 'Hạn nộp tờ khai thuế GTGT theo quý là ngày cuối cùng của tháng đầu quý tiếp theo.', sender: 'bot', timestamp: new Date(2024, 10, 2, 10, 16) },
-    ],
-    '3': [
-      { id: '3-1', text: 'Xin chào! Tôi là trợ lý AI về luật thuế Việt Nam. Tôi có thể giúp gì cho bạn?', sender: 'bot', timestamp: new Date(2024, 10, 1, 16, 40) },
-      { id: '3-2', text: 'Cách tính thuế GTGT đầu vào', sender: 'user', timestamp: new Date(2024, 10, 1, 16, 45) },
-      { id: '3-3', text: 'Thuế GTGT đầu vào là số thuế GTGT ghi trên hóa đơn mua hàng hóa, dịch vụ được khấu trừ khi tính thuế GTGT phải nộp.', sender: 'bot', timestamp: new Date(2024, 10, 1, 16, 46) },
-    ],
-  });
-
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessages>({});
   const [inputMessage, setInputMessage] = useState('');
-  const [selectedConversation, setSelectedConversation] = useState(conversations[0].id);
+  const [selectedConversation, setSelectedConversation] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, []);
+
+  const loadConversations = async () => {
+    try {
+      setIsLoading(true);
+      const convs = await userChatAPI.getConversations();
+      const convertedConvs = convs.map(c => ({
+        id: c.id,
+        timestamp: new Date(c.timestamp),
+      }));
+      setConversations(convertedConvs);
+      
+      // Load messages for each conversation
+      const allMessages: ConversationMessages = {};
+      for (const conv of convs) {
+        allMessages[conv.id] = conv.messages.map(m => ({
+          id: m.id,
+          text: m.text,
+          sender: m.sender,
+          timestamp: new Date(m.timestamp),
+        }));
+      }
+      setConversationMessages(allMessages);
+      
+      // Select first conversation
+      if (convertedConvs.length > 0) {
+        setSelectedConversation(convertedConvs[0].id);
+      }
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Get messages for current conversation
   const currentMessages = conversationMessages[selectedConversation] || [];
@@ -72,48 +89,38 @@ export function UserChatView() {
     return messages.length > 0 ? messages[messages.length - 1] : null;
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
 
-    const userMessage: Message = {
-      id: `${selectedConversation}-${Date.now()}`,
-      text: inputMessage,
-      sender: 'user',
-      timestamp: new Date(),
-    };
-
-    // Update messages for current conversation
-    setConversationMessages(prev => ({
-      ...prev,
-      [selectedConversation]: [...(prev[selectedConversation] || []), userMessage],
-    }));
-
-    // Update conversation timestamp
-    setConversations(prev => 
-      prev.map(conv => 
-        conv.id === selectedConversation 
-          ? { ...conv, timestamp: new Date() }
-          : conv
-      ).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    );
-
+    const messageText = inputMessage;
     setInputMessage('');
 
-    // Simulate bot response
-    setTimeout(() => {
-      const botMessage: Message = {
-        id: `${selectedConversation}-${Date.now() + 1}`,
-        text: 'Theo Luật Thuế Thu nhập cá nhân số 04/2007/QH12, mức thuế suất TNCN được áp dụng theo biểu lũy tiến từng phần với các mức từ 5% đến 35% tùy thuộc vào thu nhập chịu thuế. Bạn có muốn biết chi tiết về các bậc thuế không?',
-        sender: 'bot',
-        timestamp: new Date(),
+    try {
+      // Call API to send message
+      const { userMessage, botMessage } = await userChatAPI.sendMessage(selectedConversation, messageText);
+      
+      // Convert to local format
+      const convertedUserMsg: Message = {
+        id: userMessage.id,
+        text: userMessage.text,
+        sender: userMessage.sender,
+        timestamp: new Date(userMessage.timestamp),
       };
       
+      const convertedBotMsg: Message = {
+        id: botMessage.id,
+        text: botMessage.text,
+        sender: botMessage.sender,
+        timestamp: new Date(botMessage.timestamp),
+      };
+
+      // Update messages
       setConversationMessages(prev => ({
         ...prev,
-        [selectedConversation]: [...(prev[selectedConversation] || []), botMessage],
+        [selectedConversation]: [...(prev[selectedConversation] || []), convertedUserMsg, convertedBotMsg],
       }));
 
-      // Update conversation timestamp again
+      // Update conversation timestamp
       setConversations(prev => 
         prev.map(conv => 
           conv.id === selectedConversation 
@@ -121,35 +128,43 @@ export function UserChatView() {
             : conv
         ).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
       );
-    }, 1000);
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
   };
 
-  const handleNewConversation = () => {
-    const newConvId = Date.now().toString();
-    const welcomeMessage: Message = {
-      id: `${newConvId}-1`,
-      text: 'Xin chào! Tôi là trợ lý AI về luật thuế Việt Nam. Tôi có thể giúp gì cho bạn?',
-      sender: 'bot',
-      timestamp: new Date(),
-    };
+  const handleNewConversation = async () => {
+    try {
+      // Call API to create new conversation
+      const newConv = await userChatAPI.createConversation();
+      
+      // Convert to local format
+      const convertedConv: Conversation = {
+        id: newConv.id,
+        timestamp: new Date(newConv.timestamp),
+      };
+      
+      const convertedMessages: Message[] = newConv.messages.map(m => ({
+        id: m.id,
+        text: m.text,
+        sender: m.sender,
+        timestamp: new Date(m.timestamp),
+      }));
 
-    // Create new conversation
-    const newConversation: Conversation = {
-      id: newConvId,
-      timestamp: new Date(),
-    };
+      // Add to conversations list (at the top)
+      setConversations([convertedConv, ...conversations]);
 
-    // Add to conversations list (at the top)
-    setConversations([newConversation, ...conversations]);
+      // Initialize messages for new conversation
+      setConversationMessages(prev => ({
+        ...prev,
+        [newConv.id]: convertedMessages,
+      }));
 
-    // Initialize messages for new conversation
-    setConversationMessages(prev => ({
-      ...prev,
-      [newConvId]: [welcomeMessage],
-    }));
-
-    // Select the new conversation
-    setSelectedConversation(newConvId);
+      // Select the new conversation
+      setSelectedConversation(newConv.id);
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+    }
   };
 
   const formatTime = (date: Date) => {
@@ -173,22 +188,29 @@ export function UserChatView() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (conversationToDelete) {
-      // Remove conversation
-      setConversations(conversations.filter(c => c.id !== conversationToDelete));
-      
-      // Remove messages for this conversation
-      setConversationMessages(prev => {
-        const newMessages = { ...prev };
-        delete newMessages[conversationToDelete];
-        return newMessages;
-      });
+      try {
+        // Call API to delete conversation
+        await userChatAPI.deleteConversation(conversationToDelete);
+        
+        // Remove conversation
+        setConversations(conversations.filter(c => c.id !== conversationToDelete));
+        
+        // Remove messages for this conversation
+        setConversationMessages(prev => {
+          const newMessages = { ...prev };
+          delete newMessages[conversationToDelete];
+          return newMessages;
+        });
 
-      // If deleting the selected conversation, select another one
-      if (selectedConversation === conversationToDelete && conversations.length > 1) {
-        const remaining = conversations.filter(c => c.id !== conversationToDelete);
-        setSelectedConversation(remaining[0].id);
+        // If deleting the selected conversation, select another one
+        if (selectedConversation === conversationToDelete && conversations.length > 1) {
+          const remaining = conversations.filter(c => c.id !== conversationToDelete);
+          setSelectedConversation(remaining[0].id);
+        }
+      } catch (error) {
+        console.error('Error deleting conversation:', error);
       }
     }
     setDeleteDialogOpen(false);

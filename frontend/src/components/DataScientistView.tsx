@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, Search, ChevronDown, ChevronUp, Eye, CheckCircle, XCircle, Download, Loader2, Database, Trash2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { dataScientistAPI } from '../services/mockApi';
 import {
   BarChart,
   Bar,
@@ -60,88 +61,13 @@ export function DataScientistView() {
   const [fullTextDialog, setFullTextDialog] = useState<RetrievalMatch | null>(null);
   const [isApplyingAll, setIsApplyingAll] = useState(false);
   const [applyProgress, setApplyProgress] = useState(0);
+  const [feedbackDialog, setFeedbackDialog] = useState<DatabaseDocument | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Database documents
-  const [databaseDocs, setDatabaseDocs] = useState<DatabaseDocument[]>([
-    { 
-      id: '1', 
-      name: 'Luật Thuế TNCN 2024.pdf', 
-      type: 'Luật Thuế TNCN', 
-      uploadedBy: 'Luật sư Trần Thị B',
-      uploadDate: new Date(2024, 10, 2),
-      lawyerFeedback: 'Tài liệu chính xác, đầy đủ. Phù hợp với quy định hiện hành.',
-      lawyerAction: 'add',
-      reviewedBy: 'Luật sư Nguyễn Văn A',
-      reviewDate: new Date(2024, 10, 2),
-      dsApproved: true,
-      appliedToDatabase: true
-    },
-    { 
-      id: '2', 
-      name: 'Thông tư 111-2013-TT-BTC.pdf', 
-      type: 'Thông tư', 
-      uploadedBy: 'Luật sư Trần Thị B',
-      uploadDate: new Date(2024, 9, 22),
-      lawyerFeedback: 'Đã xem xét. Cần cập nhật theo thông tư mới nhất.',
-      lawyerAction: 'add',
-      reviewedBy: 'Luật sư Nguyễn Văn A',
-      reviewDate: new Date(2024, 9, 22),
-      dsApproved: true,
-      appliedToDatabase: true
-    },
-    { 
-      id: '3', 
-      name: 'Nghị định 126-2020-NĐ-CP.docx', 
-      type: 'Nghị định', 
-      uploadedBy: 'Luật sư Trần Thị B',
-      uploadDate: new Date(2024, 9, 15),
-      lawyerFeedback: 'Đang chờ đánh giá chi tiết',
-      lawyerAction: 'add',
-      reviewedBy: 'Luật sư Nguyễn Văn A',
-      reviewDate: new Date(2024, 9, 15),
-      dsApproved: false,
-      appliedToDatabase: false
-    },
-    { 
-      id: '4', 
-      name: 'Luật Thuế GTGT 2024.pdf', 
-      type: 'Luật Thuế GTGT', 
-      uploadedBy: 'Luật sư Nguyễn Văn C',
-      uploadDate: new Date(2024, 9, 10),
-      lawyerFeedback: 'Văn bản hợp lệ và cập nhật.',
-      lawyerAction: 'add',
-      reviewedBy: 'Luật sư Trần Thị B',
-      reviewDate: new Date(2024, 9, 12),
-      dsApproved: true,
-      appliedToDatabase: true
-    },
-    { 
-      id: '5', 
-      name: 'Luật cũ 2020.pdf', 
-      type: 'Luật đã hết hiệu lực', 
-      uploadedBy: 'Luật sư Nguyễn Văn C',
-      uploadDate: new Date(2024, 9, 5),
-      lawyerFeedback: 'Văn bản đã hết hiệu lực, cần loại bỏ khỏi hệ thống.',
-      lawyerAction: 'remove',
-      reviewedBy: 'Luật sư Trần Thị B',
-      reviewDate: new Date(2024, 9, 10),
-      dsApproved: true,
-      appliedToDatabase: false
-    },
-    { 
-      id: '6', 
-      name: 'Hướng dẫn khai thuế DN.pdf', 
-      type: 'Hướng dẫn', 
-      uploadedBy: 'Luật sư Trần Thị B',
-      uploadDate: new Date(2024, 8, 5),
-      lawyerFeedback: 'Tài liệu cần xem xét thêm.',
-      lawyerAction: 'add',
-      reviewedBy: 'Luật sư Nguyễn Văn A',
-      reviewDate: new Date(2024, 8, 5),
-      dsApproved: false,
-      appliedToDatabase: false
-    },
-  ]);
+  const [databaseDocs, setDatabaseDocs] = useState<DatabaseDocument[]>([]);
+
+  const [retrievalMatches, setRetrievalMatches] = useState<RetrievalMatch[]>([]);
 
   // Similarity distribution data
   const similarityDistribution = [
@@ -152,58 +78,51 @@ export function DataScientistView() {
     { range: '80-100%', count: 243 },
   ];
 
-  const retrievalMatches: RetrievalMatch[] = [
-    {
-      id: '1',
-      userQuery: 'Mức thuế suất TNCN áp dụng như thế nào?',
-      chatbotResponse: 'Theo Luật Thuế Thu nhập cá nhân, mức thuế suất TNCN được áp dụng theo biểu lũy tiến từng phần với các mức từ 5% đến 35%.',
-      retrievedSnippet: 'Điều 22. Biểu thuế lũy tiến từng phần đối với thu nhập từ tiền lương, tiền công: Bậc 1: Đến 5 triệu đồng - 5%, Bậc 2: Trên 5 đến 10 triệu đồng - 10%, Bậc 3: Trên 10 đến 18 triệu đồng - 15%, Bậc 4: Trên 18 đến 32 triệu đồng - 20%, Bậc 5: Trên 32 đến 52 triệu đồng - 25%, Bậc 6: Trên 52 đến 80 triệu đồng - 30%, Bậc 7: Trên 80 triệu đồng - 35%.',
-      documentSource: 'Luật Thuế TNCN 2024.pdf',
-      similarityScore: 0.92,
-      timestamp: new Date(2024, 10, 3, 14, 30),
-      status: 'accurate'
-    },
-    {
-      id: '2',
-      userQuery: 'Hạn nộp tờ khai thuế quý là khi nào?',
-      chatbotResponse: 'Theo quy định, doanh nghiệp phải nộp tờ khai thuế GTGT theo quý chậm nhất là ngày cuối cùng của tháng đầu tiên của quý tiếp theo.',
-      retrievedSnippet: 'Điều 44. Thời hạn nộp tờ khai thuế: Đối với khai thuế theo quý: chậm nhất là ngày thứ 30 của tháng đầu quý sau.',
-      documentSource: 'Thông tư 111-2013-TT-BTC.pdf',
-      similarityScore: 0.88,
-      timestamp: new Date(2024, 10, 2, 16, 45),
-      status: 'accurate'
-    },
-    {
-      id: '3',
-      userQuery: 'Cách tính thuế GTGT đầu vào',
-      chatbotResponse: 'Thuế GTGT đầu vào được tính dựa trên hóa đơn hợp pháp của hàng hóa, dịch vụ mua vào phục vụ sản xuất kinh doanh.',
-      retrievedSnippet: 'Điều 15. Thuế GTGT đầu vào được khấu trừ: Thuế GTGT đầu vào của hàng hóa, dịch vụ sử dụng cho sản xuất, kinh doanh hàng hóa, dịch vụ chịu thuế GTGT.',
-      documentSource: 'Luật Thuế GTGT 2024.pdf',
-      similarityScore: 0.79,
-      timestamp: new Date(2024, 10, 2, 11, 20),
-      status: 'partial'
-    },
-    {
-      id: '4',
-      userQuery: 'Thuế môn bài là gì?',
-      chatbotResponse: 'Xin lỗi, tôi không tìm thấy thông tin cụ thể về vấn đề này trong cơ sở dữ liệu.',
-      retrievedSnippet: 'N/A',
-      documentSource: 'N/A',
-      similarityScore: 0.32,
-      timestamp: new Date(2024, 10, 2, 11, 20),
-      status: 'inaccurate'
-    },
-    {
-      id: '5',
-      userQuery: 'Thuế suất doanh nghiệp nhỏ và vừa',
-      chatbotResponse: 'Doanh nghiệp nhỏ và vừa có thể được áp dụng mức thuế suất ưu đãi 17% đối với phần thu nhập không vượt quá 200 tỷ đồng/năm, theo Nghị định 126/2020/NĐ-CP.',
-      retrievedSnippet: 'Điều 9. Thuế suất ưu đãi: Doanh nghiệp nhỏ và vừa có doanh thu từ hoạt động SXKD không quá 200 tỷ đồng/năm được áp dụng thuế suất thuế TNDN là 17% đối với phần thu nhập chịu thuế từ hoạt động này.',
-      documentSource: 'Nghị định 126-2020-NĐ-CP.docx',
-      similarityScore: 0.85,
-      timestamp: new Date(2024, 10, 1, 9, 15),
-      status: 'accurate'
-    },
-  ];
+  // Load data on mount
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Load retrieval matches
+      const matches = await dataScientistAPI.getRetrievalMatches();
+      const convertedMatches = matches.map(m => ({
+        id: m.id,
+        userQuery: m.userQuery,
+        chatbotResponse: m.chatbotResponse,
+        retrievedSnippet: m.retrievedSnippet,
+        documentSource: m.documentSource,
+        similarityScore: m.similarityScore,
+        timestamp: new Date(m.timestamp),
+        status: m.status,
+      }));
+      setRetrievalMatches(convertedMatches);
+
+      // Load database documents
+      const docs = await dataScientistAPI.getDatabaseDocuments();
+      const convertedDocs = docs.map(d => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        uploadedBy: d.uploadedBy,
+        uploadDate: new Date(d.uploadDate),
+        lawyerFeedback: d.lawyerFeedback,
+        lawyerAction: d.lawyerAction,
+        reviewedBy: d.reviewedBy,
+        reviewDate: d.reviewDate ? new Date(d.reviewDate) : undefined,
+        dsApproved: d.dsApproved,
+        appliedToDatabase: d.appliedToDatabase,
+      }));
+      setDatabaseDocs(convertedDocs);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const toggleRowExpanded = (id: string) => {
     const newExpanded = new Set(expandedRows);
@@ -236,15 +155,21 @@ export function DataScientistView() {
     }
   };
 
-  const exportToJSON = () => {
-    const dataStr = JSON.stringify(retrievalMatches, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const exportFileDefaultName = `retrieval-matches-${new Date().toISOString().split('T')[0]}.json`;
-    
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
+  const exportToJSON = async () => {
+    try {
+      // Call API to export data
+      const jsonData = await dataScientistAPI.exportRetrievalData();
+      
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(jsonData);
+      const exportFileDefaultName = `retrieval-matches-${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+    } catch (error) {
+      console.error('Error exporting data:', error);
+    }
   };
 
   const handleActionSelect = (docId: string, action: string) => {
@@ -271,36 +196,48 @@ export function DataScientistView() {
       d.id === docId ? { ...d, isApplying: true } : d
     ));
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Delete document from table for these actions:
-    // - sent-back and remove-from-db (for applied documents)
-    // - approve-remove (approving a lawyer's removal request)
-    // - reject-send-back (rejecting any document, including removal requests)
-    if (
-      doc.selectedAction === 'sent-back' || 
-      doc.selectedAction === 'remove-from-db' ||
-      doc.selectedAction === 'approve-remove' ||
-      doc.selectedAction === 'reject-send-back'
-    ) {
-      setDatabaseDocs(databaseDocs.filter(d => d.id !== docId));
-      return;
-    }
-
-    setDatabaseDocs(databaseDocs.map(d => {
-      if (d.id === docId) {
-        switch (doc.selectedAction) {
-          case 'approve-add':
-            // Approve and add to database
-            return { ...d, isApplying: false, dsApproved: true, appliedToDatabase: true, selectedAction: undefined };
-          
-          default:
-            return { ...d, isApplying: false, selectedAction: undefined };
-        }
+    try {
+      // Delete document from table for these actions:
+      // - sent-back and remove-from-db (for applied documents)
+      // - approve-remove (approving a lawyer's removal request)
+      // - reject-send-back (rejecting any document, including removal requests)
+      if (
+        doc.selectedAction === 'sent-back' || 
+        doc.selectedAction === 'remove-from-db' ||
+        doc.selectedAction === 'approve-remove' ||
+        doc.selectedAction === 'reject-send-back'
+      ) {
+        // Call API to remove document
+        await dataScientistAPI.removeDocument(docId);
+        setDatabaseDocs(databaseDocs.filter(d => d.id !== docId));
+        return;
       }
-      return d;
-    }));
+
+      // For approve-add action
+      if (doc.selectedAction === 'approve-add') {
+        // Call API to update document status
+        await dataScientistAPI.updateDocumentStatus(docId, true, true);
+        
+        setDatabaseDocs(databaseDocs.map(d => {
+          if (d.id === docId) {
+            return { ...d, isApplying: false, dsApproved: true, appliedToDatabase: true, selectedAction: undefined };
+          }
+          return d;
+        }));
+      } else {
+        setDatabaseDocs(databaseDocs.map(d => {
+          if (d.id === docId) {
+            return { ...d, isApplying: false, selectedAction: undefined };
+          }
+          return d;
+        }));
+      }
+    } catch (error) {
+      console.error('Error applying action:', error);
+      setDatabaseDocs(databaseDocs.map(d => 
+        d.id === docId ? { ...d, isApplying: false } : d
+      ));
+    }
   };
 
   const handleApplyAll = async () => {
@@ -324,8 +261,6 @@ export function DataScientistView() {
     setIsApplyingAll(false);
     setApplyProgress(0);
   };
-
-  const [feedbackDialog, setFeedbackDialog] = useState<DatabaseDocument | null>(null);
 
   return (
     <div className="h-full overflow-auto bg-gray-50">

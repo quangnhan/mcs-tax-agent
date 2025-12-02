@@ -1,0 +1,17 @@
+# docker-compose.yml
+version: '3.9'
+
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"          # Chroma API accessible at http://localhost:8000
+    volumes:
+      - chroma-data:/chroma/chroma   # Persists your collections even if container restarts
+    environment:
+      - IS_PERSISTENT=TRUE    # Saves data to disk (inside the volume)
+      - ANONYMIZED_TELEMETRY=FALSE  # Optional: disables telemetry
+    restart: unless-stopped
+
+volumes:
+  chroma-data:   # This keeps your vectors and collections safe

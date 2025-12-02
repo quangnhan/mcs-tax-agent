@@ -1,17 +1,21 @@
-# docker-compose.yml
+# docker-compose.yml - Fully Disabled Auth (Local Dev / No Security Needed)
 version: '3.9'
 
 services:
   chroma:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma
     ports:
-      - "8000:8000"          # Chroma API accessible at http://localhost:8000
+      - "8000:8000"  # API endpoint (no auth required)
     volumes:
-      - chroma-data:/chroma/chroma   # Persists your collections even if container restarts
+      - chroma-data:/chroma/chroma  # Persistent storage for collections
     environment:
-      - IS_PERSISTENT=TRUE    # Saves data to disk (inside the volume)
-      - ANONYMIZED_TELEMETRY=FALSE  # Optional: disables telemetry
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+      # Fully disable ALL auth (no passwords, no tokens, no identity checks)
+      - CHROMA_SERVER_AUTH_ENABLED=FALSE  # Global toggle (new in 0.5+)
+      - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.basic.NoAuthProvider  # Explicit no-auth provider
+      - CHROMA_SERVER_AUTH_CREDENTIALS=""  # Empty (no credentials needed)
     restart: unless-stopped
 
 volumes:
-  chroma-data:   # This keeps your vectors and collections safe
+  chroma-data:

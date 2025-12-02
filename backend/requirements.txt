@@ -5,3 +5,10 @@ psycopg2-binary==2.9.9
 Flask-CORS==4.0.0
 Werkzeug==3.0.0
 flask-swagger-ui
+
+langchain==0.2.16                  
+langchain-chroma==0.1.4
+langchain-huggingface==0.1.0       
+langchain-openai==0.1.25           
+chromadb==0.5.11
+sentence-transformers==3.1.1

@@ -6,6 +6,7 @@ from sqlalchemy import func
 from extensions import db
 from models.document import Document
 from models.document_audit_log import DocumentAuditLog
+from agent.document_service import DocumentService
 
 document_bp = Blueprint("documents", __name__)
 
@@ -137,24 +138,70 @@ def approve_document(doc_id):
         return jsonify({"error": "Permission denied"}), 403
 
     doc = Document.query.get_or_404(doc_id)
+
+    # 1. Kiểm tra nếu đã approved rồi → không làm lại
+    if doc.status == "approved":
+        return jsonify({"message": "Document already approved"}), 200
+
     old_status = doc.status
     doc.status = "approved"
-
     user_id = int(get_jwt_identity())
 
+    # 2. Ghi audit log
     log = DocumentAuditLog(
         document_id=doc.id,
         action="approve",
         old_status=old_status,
         new_status="approved",
         user_id=user_id,
-        message="Approved"
+        message="Document approved and queued for AI indexing"
     )
-
     db.session.add(log)
+
+    # 3. Đọc nội dung file (bắt lỗi nếu file hỏng)
+    try:
+        with open(doc.file_path, "r", encoding="utf-8") as f:
+            raw_text = f.read()
+    except Exception as e:
+        print(f"Cannot read file for doc {doc.id}: {e}")
+        return jsonify({"error": "Cannot read document file"}), 500
+
+    # 4. Commit status + log trước (đảm bảo trạng thái đã được cập nhật)
     db.session.commit()
 
-    return jsonify({"message": "Approved"})
+    # 5. Gọi DocumentService – service này KHÔNG biết gì về db.session
+    try:
+        DocumentService.index_document(
+            text_content=raw_text,
+            metadata={
+                "title": doc.title,
+                "source": doc.original_filename or doc.title,
+                "tax_type": doc.tax_type or "unknown",
+                "issue_date": doc.issue_date.isoformat() if doc.issue_date else None,
+                "uploaded_by": user_id,
+            },
+            doc_id=doc.id
+        )
+
+        # Chỉ cập nhật flag khi indexing thành công
+        doc.in_vector_db = True
+        db.session.commit()
+
+        print(f"Document {doc.id} '{doc.title}' successfully approved + indexed in AI")
+
+        return jsonify({
+            "message": "Document approved and successfully added to AI search engine",
+            "document_id": doc.id,
+            "in_vector_db": True
+        }), 200
+
+    except Exception as e:
+        print(f"Failed to index document {doc.id} into Chroma: {e}")
+        # Không rollback status – tài liệu vẫn là "approved", chỉ là chưa vào AI
+        return jsonify({
+            "message": "Document approved but failed to add to AI search (will retry later)",
+            "error": str(e)
+        }), 202  # 202 Accepted → có thể retry sau
 
 
 # =============================================================================
@@ -203,30 +250,46 @@ def delete_document(doc_id):
 
     doc = Document.query.get_or_404(doc_id)
 
-    # Xóa file vật lý
+    user_id = int(get_jwt_identity())
+
+    # 1. Xóa khỏi Chroma trước (nếu đã từng được index)
+    if doc.in_vector_db:
+        try:
+            DocumentService.remove_document(doc.id)
+            print(f"Document {doc.id} removed from ChromaDB during deletion")
+        except Exception as e:
+            print(f"Failed to remove doc {doc.id} from Chroma (continuing anyway): {e}")
+            # Không raise lỗi – vẫn cho phép xóa file và DB
+
+    # 2. Xóa file vật lý
     file_path = getattr(doc, "file_path", None)
     if file_path and os.path.exists(file_path):
         try:
             os.remove(file_path)
-        except OSError:
-            pass
+            print(f"Physical file deleted: {file_path}")
+        except OSError as e:
+            print(f"Failed to delete file {file_path}: {e}")
 
-    user_id = int(get_jwt_identity())
-
+    # 3. Ghi audit log
     log = DocumentAuditLog(
         document_id=doc.id,
         action="delete",
         old_status=doc.status,
         new_status=None,
         user_id=user_id,
-        message="Document deleted"
+        message="Document permanently deleted (file + DB + AI index)"
     )
-
     db.session.add(log)
+
+    # 4. Xóa khỏi PostgreSQL
     db.session.delete(doc)
     db.session.commit()
 
-    return jsonify({"message": "Deleted"})
+    return jsonify({
+        "message": "Document permanently deleted",
+        "document_id": doc_id,
+        "chroma_removed": doc.in_vector_db  # True nếu đã từng ở trong AI
+    }), 200
 
 
 # =============================================================================

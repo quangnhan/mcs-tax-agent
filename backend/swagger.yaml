@@ -192,6 +192,78 @@ paths:
             application/json:
               example:
                 message: Status updated
+  /documents/{doc_id}/approve:
+    post:
+      tags: [Documents]
+      security: [{ BearerAuth: [] }]
+      summary: Approve document (Admin only)
+      parameters:
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: integer }
+      responses:
+        200:
+          description: Success (already approved or approved + indexed)
+          content:
+            application/json:
+              examples:
+                already_approved:
+                  value: { "message": "Document already approved" }
+                success:
+                  value:
+                    {
+                      "message": "Document approved and successfully added to AI search engine",
+                      "document_id": 123,
+                      "in_vector_db": true
+                    }
+        202:
+          description: Approved but indexing failed (will retry)
+          content:
+            application/json:
+              example:
+                {
+                  "message": "Document approved but failed to add to AI search (will retry later)",
+                  "error": "Chroma connection timeout"
+                }
+        403:
+          description: Permission denied
+          content:
+            application/json:
+              example: { "error": "Permission denied" }
+        404:
+          description: Document not found
+        500:
+          description: Cannot read file or server error
+  /documents/{doc_id}:
+    delete:
+      tags: [Documents]
+      security: [{ BearerAuth: [] }]
+      summary: Permanently delete document (Admin only)
+      parameters:
+        - in: path
+          name: doc_id
+          required: true
+          schema: { type: integer }
+          description: Document ID to delete
+      responses:
+        200:
+          description: Document successfully deleted (from DB, file system, and AI index if applicable)
+          content:
+            application/json:
+              example:
+                {
+                  "message": "Document permanently deleted",
+                  "document_id": 123,
+                  "chroma_removed": true
+                }
+        403:
+          description: Permission denied (not admin)
+          content:
+            application/json:
+              example: { "error": "Permission denied" }
+        404:
+          description: Document not found
 
   # ============================
   # ADMIN

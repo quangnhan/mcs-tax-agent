@@ -1,7 +1,7 @@
 # services/chroma_service.py
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LCDocument
-from .vector_db import get_vectorstore
+from .vector_db import insert_documents
 import logging
 from typing import Dict, Any
 
@@ -10,12 +10,28 @@ _splitter = RecursiveCharacterTextSplitter(
     chunk_size=2000,
     chunk_overlap=100,
     separators=[
-        "\nI.", "\nII.", "\nIII.", "\nIV.", "\nV.",
-        "\n1.", "\n2.", "\n3.", "\n4.", "\n5.",
-        "\na)", "\nb)", "\nc)", "\nd)", "\ne)",
-        "\n\n", ". ", " ", ""
-    ]
+        "\nI.",
+        "\nII.",
+        "\nIII.",
+        "\nIV.",
+        "\nV.",
+        "\n1.",
+        "\n2.",
+        "\n3.",
+        "\n4.",
+        "\n5.",
+        "\na)",
+        "\nb)",
+        "\nc)",
+        "\nd)",
+        "\ne)",
+        "\n\n",
+        ". ",
+        " ",
+        "",
+    ],
 )
+
 
 class DocumentService:
     """
@@ -24,16 +40,11 @@ class DocumentService:
     """
 
     @staticmethod
-    def index_document(
-        text_content: str,
-        metadata: Dict[str, Any],
-        doc_id: int
-    ) -> None:
+    def index_document(text_content: str, doc_id: int) -> None:
         """
         Thêm tài liệu vào Chroma
         Args:
             text_content: nội dung đã đọc từ file
-            metadata: dict chứa title, source, tax_type,...
             doc_id: ID chính từ PostgreSQL (dùng để delete sau này)
         """
         try:
@@ -46,17 +57,18 @@ class DocumentService:
                 page_content=clean_text,
                 metadata={
                     "doc_id": doc_id,
-                    **metadata  # title, source, tax_type, issue_date,...
-                }
+                },
             )
 
             # 3. Chunk
             chunks = _splitter.split_documents([lc_doc])
 
             # 4. Add to Chroma
-            get_vectorstore().add_documents(chunks)
+            texts = []
+            texts.extend(chunks)
+            insert_documents(texts)
 
-            logging.info(f"Indexed doc_id={doc_id} | {len(chunks)} chunks | {metadata.get('title', 'No title')}")
+            logging.info(f"Indexed doc_id={doc_id} | {len(chunks)} chunks")
 
         except Exception as e:
             logging.error(f"Chroma indexing failed for doc_id={doc_id}: {e}")
@@ -68,7 +80,9 @@ class DocumentService:
         try:
             deleted_count = DocumentService._delete_by_doc_id(doc_id)
             if deleted_count > 0:
-                logging.info(f"Removed doc_id={doc_id} from Chroma ({deleted_count} chunks)")
+                logging.info(
+                    f"Removed doc_id={doc_id} from Chroma ({deleted_count} chunks)"
+                )
         except Exception as e:
             logging.error(f"Failed to remove doc_id={doc_id} from Chroma: {e}")
             raise

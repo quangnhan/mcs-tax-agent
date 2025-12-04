@@ -72,7 +72,7 @@ def create_document():
         old_status=None,
         new_status="pending",
         user_id=user_id,
-        message="Document created"
+        message="Document created",
     )
     db.session.add(log)
     db.session.commit()
@@ -118,7 +118,7 @@ def review_document(doc_id):
         old_status=old_status,
         new_status="reviewed",
         user_id=user_id,
-        message=feedback or "Reviewed"
+        message=feedback or "Reviewed",
     )
 
     db.session.add(log)
@@ -154,7 +154,7 @@ def approve_document(doc_id):
         old_status=old_status,
         new_status="approved",
         user_id=user_id,
-        message="Document approved and queued for AI indexing"
+        message="Document approved and queued for AI indexing",
     )
     db.session.add(log)
 
@@ -164,7 +164,7 @@ def approve_document(doc_id):
             raw_text = f.read()
     except Exception as e:
         print(f"Cannot read file for doc {doc.id}: {e}")
-        return jsonify({"error": "Cannot read document file"}), 500
+        return jsonify({"error": f"Cannot read document file: {doc.file_path}"}), 500
 
     # 4. Commit status + log trước (đảm bảo trạng thái đã được cập nhật)
     db.session.commit()
@@ -173,14 +173,7 @@ def approve_document(doc_id):
     try:
         DocumentService.index_document(
             text_content=raw_text,
-            metadata={
-                "title": doc.title,
-                "source": doc.original_filename or doc.title,
-                "tax_type": doc.tax_type or "unknown",
-                "issue_date": doc.issue_date.isoformat() if doc.issue_date else None,
-                "uploaded_by": user_id,
-            },
-            doc_id=doc.id
+            doc_id=doc.id,
         )
 
         # Chỉ cập nhật flag khi indexing thành công
@@ -189,19 +182,29 @@ def approve_document(doc_id):
 
         print(f"Document {doc.id} '{doc.title}' successfully approved + indexed in AI")
 
-        return jsonify({
-            "message": "Document approved and successfully added to AI search engine",
-            "document_id": doc.id,
-            "in_vector_db": True
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Document approved and successfully added to AI search engine",
+                    "document_id": doc.id,
+                    "in_vector_db": True,
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         print(f"Failed to index document {doc.id} into Chroma: {e}")
         # Không rollback status – tài liệu vẫn là "approved", chỉ là chưa vào AI
-        return jsonify({
-            "message": "Document approved but failed to add to AI search (will retry later)",
-            "error": str(e)
-        }), 202  # 202 Accepted → có thể retry sau
+        return (
+            jsonify(
+                {
+                    "message": "Document approved but failed to add to AI search (will retry later)",
+                    "error": str(e),
+                }
+            ),
+            202,
+        )  # 202 Accepted → có thể retry sau
 
 
 # =============================================================================
@@ -229,7 +232,7 @@ def reject_document(doc_id):
         old_status=old_status,
         new_status="rejected",
         user_id=user_id,
-        message=msg
+        message=msg,
     )
 
     db.session.add(log)
@@ -277,7 +280,7 @@ def delete_document(doc_id):
         old_status=doc.status,
         new_status=None,
         user_id=user_id,
-        message="Document permanently deleted (file + DB + AI index)"
+        message="Document permanently deleted (file + DB + AI index)",
     )
     db.session.add(log)
 
@@ -285,11 +288,16 @@ def delete_document(doc_id):
     db.session.delete(doc)
     db.session.commit()
 
-    return jsonify({
-        "message": "Document permanently deleted",
-        "document_id": doc_id,
-        "chroma_removed": doc.in_vector_db  # True nếu đã từng ở trong AI
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Document permanently deleted",
+                "document_id": doc_id,
+                "chroma_removed": doc.in_vector_db,  # True nếu đã từng ở trong AI
+            }
+        ),
+        200,
+    )
 
 
 # =============================================================================
@@ -363,11 +371,12 @@ def update_document_status(doc_id):
     db.session.add(log)
     db.session.commit()
 
-    return jsonify({
-        "message": "Status updated",
-        "status": new_status,
-        "feedback": feedback
-    }), 200
+    return (
+        jsonify(
+            {"message": "Status updated", "status": new_status, "feedback": feedback}
+        ),
+        200,
+    )
 
 
 # =============================================================================
@@ -378,13 +387,15 @@ def update_document_status(doc_id):
 @jwt_required()
 def get_document(doc_id):
     doc = Document.query.get_or_404(doc_id)
-    return jsonify({
-        "id": doc.id,
-        "title": doc.title,
-        "status": doc.status,
-        "file_path": doc.file_path,
-        "stored_filename": doc.stored_filename,
-    })
+    return jsonify(
+        {
+            "id": doc.id,
+            "title": doc.title,
+            "status": doc.status,
+            "file_path": doc.file_path,
+            "stored_filename": doc.stored_filename,
+        }
+    )
 
 
 # =============================================================================
@@ -397,14 +408,16 @@ def get_document_audit(doc_id):
     logs = DocumentAuditLog.query.filter_by(document_id=doc_id).all()
     result = []
     for log in logs:
-        result.append({
-            "timestamp": log.created_at.isoformat(),
-            "action": log.action,
-            "old_value": log.old_status,
-            "new_value": log.new_status,
-            "user_email": log.user.email if log.user else "",
-            "message": log.message
-        })
+        result.append(
+            {
+                "timestamp": log.created_at.isoformat(),
+                "action": log.action,
+                "old_value": log.old_status,
+                "new_value": log.new_status,
+                "user_email": log.user.email if log.user else "",
+                "message": log.message,
+            }
+        )
     return jsonify(result)
 
 
@@ -419,8 +432,4 @@ def view_document_file(doc_id):
     if not doc.file_path or not os.path.exists(doc.file_path):
         return jsonify({"error": "File not found"}), 404
 
-    return send_file(
-        doc.file_path,
-        mimetype="application/pdf",
-        as_attachment=False
-    )
+    return send_file(doc.file_path, mimetype="application/pdf", as_attachment=False)

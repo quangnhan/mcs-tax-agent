@@ -1,21 +1,24 @@
-# docker-compose.yml - Fully Disabled Auth (Local Dev / No Security Needed)
-version: '3.9'
+# docker-compose.yaml
 
 services:
-  chroma:
-    image: chromadb/chroma
+  qdrant:
+    # Sử dụng image chính thức mới nhất từ Docker Hub
+    image: qdrant/qdrant:latest
+    
+    # Đặt tên container dễ nhận biết
+    container_name: qdrant_instance
+    
+    # Đảm bảo dịch vụ tự động khởi động lại nếu gặp sự cố
+    restart: always
+    
+    # Ánh xạ các cổng từ container ra máy host của bạn
     ports:
-      - "8000:8000"  # API endpoint (no auth required)
+      # Cổng REST API và Web UI
+      - "6333:6333"
+      # Cổng gRPC (tùy chọn, cho hiệu suất cao hơn)
+      - "6334:6334"
+    
+    # Duy trì dữ liệu bền vững bằng cách liên kết thư mục local với storage của container
     volumes:
-      - chroma-data:/chroma/chroma  # Persistent storage for collections
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-      # Fully disable ALL auth (no passwords, no tokens, no identity checks)
-      - CHROMA_SERVER_AUTH_ENABLED=FALSE  # Global toggle (new in 0.5+)
-      - CHROMA_SERVER_AUTH_PROVIDER=chromadb.auth.basic.NoAuthProvider  # Explicit no-auth provider
-      - CHROMA_SERVER_AUTH_CREDENTIALS=""  # Empty (no credentials needed)
-    restart: unless-stopped
-
-volumes:
-  chroma-data:
+      # Dữ liệu sẽ được lưu trong thư mục './qdrant_data' trên máy host
+      - ./qdrant_data:/qdrant/storage

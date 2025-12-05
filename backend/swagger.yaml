@@ -346,7 +346,11 @@ paths:
             schema:
               type: object
               properties:
-                query: { type: string }
+                question:
+                  type: string
+                  description: The question to ask the tax law agent
+              required:
+                - question
       responses:
         200:
           description: Retrieval result
@@ -355,10 +359,39 @@ paths:
               schema:
                 type: object
                 properties:
-                  matches:
+                  question:
+                    type: string
+                    description: The original question that was asked
+                  answer:
+                    type: string
+                    description: The answer provided by the tax law agent
+                  sources:
                     type: array
+                    description: List of sources used to generate the answer
                     items:
-                      $ref: "#/components/schemas/RetrievalMatch"
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        snippet:
+                          type: string
+                      example:
+                        - title: "Tax Law Section 123"
+                          url: "https://example.com/law/123"
+                          snippet: "Relevant excerpt from the law..."
+        400:
+          description: Bad request (missing question)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                example:
+                  error: "Please send a question"
 
   /retrieval/logs:
     get:

@@ -5,34 +5,29 @@ import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { MessageSquare } from 'lucide-react';
 import { UserRole } from '../App';
+import { authAPI } from '../services/api';
 
 interface LoginViewProps {
   onLogin: (role: UserRole) => void;
 }
-
-const CREDENTIALS = {
-  user: { username: 'user', password: 'user123' },
-  lawyer: { username: 'lawyer', password: 'lawyer123' },
-  'data-scientist': { username: 'scientist', password: 'scientist123' },
-};
 
 export function LoginView({ onLogin }: LoginViewProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setError('');
-    
-    // Check credentials
-    for (const [role, creds] of Object.entries(CREDENTIALS)) {
-      if (creds.username === username && creds.password === password) {
-        onLogin(role as UserRole);
-        return;
-      }
+
+    try {
+      const response = await authAPI.login(username, password);
+      localStorage.setItem('token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
+      onLogin(response.user.role as UserRole);
+    } catch (err: any) {
+      console.error(err);
+      setError('Tên đăng nhập hoặc mật khẩu không đúng');
     }
-    
-    setError('Tên đăng nhập hoặc mật khẩu không đúng');
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -83,7 +78,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
             <p className="text-sm text-red-500">{error}</p>
           )}
 
-          <Button 
+          <Button
             className="w-full bg-[#1E88E5] hover:bg-[#1976D2]"
             onClick={handleLogin}
           >

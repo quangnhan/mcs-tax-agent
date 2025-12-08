@@ -14,7 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
-import { userChatAPI } from '../services/mockApi';
+import { userChatAPI } from '../services/api';
 
 interface Message {
   id: string;
@@ -56,7 +56,7 @@ export function UserChatView() {
         timestamp: new Date(c.timestamp),
       }));
       setConversations(convertedConvs);
-      
+
       // Load messages for each conversation
       const allMessages: ConversationMessages = {};
       for (const conv of convs) {
@@ -68,7 +68,7 @@ export function UserChatView() {
         }));
       }
       setConversationMessages(allMessages);
-      
+
       // Select first conversation
       if (convertedConvs.length > 0) {
         setSelectedConversation(convertedConvs[0].id);
@@ -98,7 +98,7 @@ export function UserChatView() {
     try {
       // Call API to send message
       const { userMessage, botMessage } = await userChatAPI.sendMessage(selectedConversation, messageText);
-      
+
       // Convert to local format
       const convertedUserMsg: Message = {
         id: userMessage.id,
@@ -106,7 +106,7 @@ export function UserChatView() {
         sender: userMessage.sender,
         timestamp: new Date(userMessage.timestamp),
       };
-      
+
       const convertedBotMsg: Message = {
         id: botMessage.id,
         text: botMessage.text,
@@ -121,9 +121,9 @@ export function UserChatView() {
       }));
 
       // Update conversation timestamp
-      setConversations(prev => 
-        prev.map(conv => 
-          conv.id === selectedConversation 
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.id === selectedConversation
             ? { ...conv, timestamp: new Date() }
             : conv
         ).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
@@ -137,13 +137,13 @@ export function UserChatView() {
     try {
       // Call API to create new conversation
       const newConv = await userChatAPI.createConversation();
-      
+
       // Convert to local format
       const convertedConv: Conversation = {
         id: newConv.id,
         timestamp: new Date(newConv.timestamp),
       };
-      
+
       const convertedMessages: Message[] = newConv.messages.map(m => ({
         id: m.id,
         text: m.text,
@@ -193,10 +193,10 @@ export function UserChatView() {
       try {
         // Call API to delete conversation
         await userChatAPI.deleteConversation(conversationToDelete);
-        
+
         // Remove conversation
         setConversations(conversations.filter(c => c.id !== conversationToDelete));
-        
+
         // Remove messages for this conversation
         setConversationMessages(prev => {
           const newMessages = { ...prev };
@@ -218,7 +218,7 @@ export function UserChatView() {
   };
 
   // Sort conversations by timestamp (most recent first)
-  const sortedConversations = [...conversations].sort((a, b) => 
+  const sortedConversations = [...conversations].sort((a, b) =>
     b.timestamp.getTime() - a.timestamp.getTime()
   );
 
@@ -227,7 +227,7 @@ export function UserChatView() {
       {/* Sidebar - Conversation History */}
       <div className="w-80 bg-white border-r border-gray-200 hidden md:flex flex-col">
         <div className="p-4 border-b border-gray-200">
-          <Button 
+          <Button
             className="w-full gap-2 bg-[#1E88E5] hover:bg-[#1976D2]"
             onClick={handleNewConversation}
           >
@@ -243,20 +243,18 @@ export function UserChatView() {
               return (
                 <Card
                   key={conv.id}
-                  className={`p-3 mb-2 cursor-pointer transition-colors ${
-                    selectedConversation === conv.id ? 'bg-blue-50 border-[#1E88E5]' : 'hover:bg-gray-50'
-                  }`}
+                  className={`p-3 mb-2 cursor-pointer transition-colors ${selectedConversation === conv.id ? 'bg-blue-50 border-[#1E88E5]' : 'hover:bg-gray-50'
+                    }`}
                   onClick={() => setSelectedConversation(conv.id)}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 space-y-1 min-w-0">
                       {lastMessage && (
                         <>
-                          <p className={`text-sm line-clamp-2 ${
-                            lastMessage.sender === 'user' 
-                              ? 'text-gray-900' 
+                          <p className={`text-sm line-clamp-2 ${lastMessage.sender === 'user'
+                              ? 'text-gray-900'
                               : 'text-gray-600'
-                          }`}>
+                            }`}>
                             {lastMessage.sender === 'user' && (
                               <span className="text-[#1E88E5] mr-1">Bạn:</span>
                             )}
@@ -302,16 +300,14 @@ export function UserChatView() {
                 className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 ${
-                    message.sender === 'user'
+                  className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 ${message.sender === 'user'
                       ? 'bg-[#1E88E5] text-white'
                       : 'bg-white text-gray-900 border border-gray-200'
-                  }`}
+                    }`}
                 >
                   <p className="whitespace-pre-wrap">{message.text}</p>
-                  <span className={`text-xs mt-1 block ${
-                    message.sender === 'user' ? 'text-blue-100' : 'text-gray-400'
-                  }`}>
+                  <span className={`text-xs mt-1 block ${message.sender === 'user' ? 'text-blue-100' : 'text-gray-400'
+                    }`}>
                     {formatTime(message.timestamp)}
                   </span>
                 </div>
@@ -331,7 +327,7 @@ export function UserChatView() {
                 placeholder="Nhập câu hỏi về luật thuế Việt Nam..."
                 className="flex-1"
               />
-              <Button 
+              <Button
                 onClick={handleSendMessage}
                 className="bg-[#1E88E5] hover:bg-[#1976D2]"
               >
@@ -356,7 +352,7 @@ export function UserChatView() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Hủy</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmDelete}
               className="bg-red-500 hover:bg-red-600"
             >

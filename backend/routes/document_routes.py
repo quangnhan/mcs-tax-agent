@@ -20,11 +20,119 @@ def require_role(roles):
         return False
     return True
 
+def assign_lawyer_auto(doc):
+    from models.user import User
+    import random
+    
+    # 1. Get all lawyers except the uploader
+    lawyers = User.query.filter(User.role == "lawyer", User.id != doc.upload_lawyer_id).all()
+    
+    if not lawyers:
+        # Fallback: if no other lawyer, maybe assign to admin or keep None?
+        # For now, let's keep it None or log warning
+        print(f"No available lawyer to assign for document {doc.id}")
+        return
+
+    # 2. Randomly choose one
+    chosen = random.choice(lawyers)
+    doc.assigned_lawyer_id = chosen.id
+    print(f"Auto-assigned doc {doc.id} to lawyer {chosen.email} (ID: {chosen.id})")
 
 # =============================================================================
-# ORIGINAL API 1 – CREATE DOCUMENT
-# (GIỮ NGUYÊN THEO SOURCE CŨ - KHÔNG XOÁ)
+# ORIGINAL API 2 – LIST DOCUMENTS
+# (UPDATED: Support filtering for Lawyer UI)
 # =============================================================================
+@document_bp.get("/list")
+@jwt_required()
+def list_documents():
+    user_id = int(get_jwt_identity())
+    claims = get_jwt()
+    role = claims.get("role")
+    
+    query = Document.query
+    
+    # Lawyer View:
+    # 1. Documents uploaded by ME
+    # 2. Documents assigned to ME
+    if role == "lawyer":
+        from sqlalchemy import or_
+        from models.user import User
+        
+        # 1. Check if I have ANY assigned documents (or uploaded by me, but primarily assigned)
+        assigned_count = Document.query.filter(Document.assigned_lawyer_id == user_id).count()
+        
+        # 2. If NO documents are assigned to me, try to auto-assign from another lawyer
+        if assigned_count == 0:
+            # Find a 'target' lawyer who is NOT me and has uploaded documents
+            # distinct() might be needed if one lawyer uploaded multiple
+            target_uploader_id = db.session.query(Document.upload_lawyer_id)\
+                .filter(Document.upload_lawyer_id.isnot(None))\
+                .filter(Document.upload_lawyer_id != user_id)\
+                .first()
+            
+            if target_uploader_id:
+                target_id = target_uploader_id[0]
+                # Assign ALL documents from this uploader to me
+                # (Or maybe just unassigned ones? Requirement says "assign documents uploaded from one other lawyer")
+                # Let's assign all docs from that lawyer to me to be safe/simple as per request
+                docs_to_assign = Document.query.filter(Document.upload_lawyer_id == target_id).all()
+                count_assigned = 0
+                for d in docs_to_assign:
+                     # Only assign if not already assigned (to avoid stealing from others?)
+                     # But user requirement says "apply assign endpoint", implying strong assignment.
+                     # Let's check if it's currently None to be polite, or just overwrite.
+                     # "if the current lawyer didn't assigned to review any documents... assign... from one other"
+                     # I'll assign if assigned_lawyer_id is None OR maybe just overwrite.
+                     # Let's overwrite to ensure I see something.
+                     d.assigned_lawyer_id = user_id
+                     count_assigned += 1
+                
+                if count_assigned > 0:
+                    db.session.commit()
+                    print(f"Auto-assigned {count_assigned} docs from lawyer {target_id} to me ({user_id})")
+
+        # 3. Now query normally
+        query = query.filter(
+            or_(
+                # Document.upload_lawyer_id == user_id, 
+                Document.assigned_lawyer_id == user_id
+            )
+        )
+    
+    docs = query.order_by(Document.id.desc()).all()
+    
+    results = []
+    for d in docs:
+        row = d.to_row()
+        # Enrich with uploadedBy name for UI
+        uploader = d.uploader 
+        row["uploadedBy"] = uploader.name if uploader else "Unknown"
+        # Add extra fields that frontend might expect if not in to_row
+        row["name"] = d.title
+        row["type"] = d.tax_type or "Unknown" # Map tax_type to type
+        row["size"] = f"{d.size_bytes // 1024} KB" if d.size_bytes else "0 KB"
+        row["uploadDate"] = d.created_at.isoformat() if d.created_at else None
+        row["issueDate"] = d.issue_date.isoformat() if d.issue_date else None
+        row["reviewStatus"] = d.status
+        row["feedback"] = d.lawyer_feedback
+        row["reviewDate"] = d.review_date.isoformat() if d.review_date else None
+        row["dataScientistFeedback"] = d.data_scientist_feedback
+        results.append(row)
+        
+    return jsonify({"documents": results})
+
+@document_bp.post("/<int:doc_id>/assign")
+@jwt_required()
+def manual_assign_lawyer(doc_id):
+    if not require_role(["admin"]):
+         return jsonify({"error": "Permission denied"}), 403
+         
+    doc = Document.query.get_or_404(doc_id)
+    assign_lawyer_auto(doc)
+    db.session.commit()
+    
+    return jsonify({"message": "Lawyer assigned successfully", "assigned_lawyer_id": doc.assigned_lawyer_id})
+
 @document_bp.post("/create")
 @jwt_required()
 def create_document():
@@ -52,6 +160,7 @@ def create_document():
         title=title,
         description=request.form.get("description"),
         tax_type=request.form.get("tax_type"),
+        issue_date=request.form.get("issue_date"),
         original_filename=file.filename,
         stored_filename=stored_name,
         mime_type=file.mimetype,
@@ -61,6 +170,9 @@ def create_document():
         status="pending",
         created_at=func.now(),
     )
+
+    # Auto-assign to a different lawyer for peer review
+    assign_lawyer_auto(doc)
 
     db.session.add(doc)
     db.session.commit()
@@ -84,11 +196,11 @@ def create_document():
 # ORIGINAL API 2 – LIST DOCUMENTS
 # (GIỮ NGUYÊN)
 # =============================================================================
-@document_bp.get("/list")
-@jwt_required()
-def list_documents():
-    docs = Document.query.order_by(Document.id.desc()).all()
-    return jsonify({"documents": [d.to_row() for d in docs]})
+# @document_bp.get("/list")
+# @jwt_required()
+# def list_documents():
+#     docs = Document.query.order_by(Document.id.desc()).all()
+#     return jsonify({"documents": [d.to_row() for d in docs]})
 
 
 # =============================================================================
@@ -432,4 +544,4 @@ def view_document_file(doc_id):
     if not doc.file_path or not os.path.exists(doc.file_path):
         return jsonify({"error": "File not found"}), 404
 
-    return send_file(doc.file_path, mimetype="application/pdf", as_attachment=False)
+    return send_file(doc.file_path, mimetype=doc.mime_type, as_attachment=False)

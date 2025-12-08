@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
-import { lawyerDocumentAPI } from '../services/mockApi';
+import { lawyerDocumentAPI } from '../services/api';
 import {
   Table,
   TableBody,
@@ -39,8 +39,18 @@ interface Document {
 }
 
 export function LawyerDocumentView() {
-  const currentLawyer = 'Luật sư Nguyễn Văn A';
-  const assignedLawyer = 'Luật sư Trần Thị B'; // Randomly assigned by system
+  const [currentLawyer, setCurrentLawyer] = useState('Luật sư');
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const u = JSON.parse(storedUser);
+        setCurrentLawyer(u.name || u.email);
+      } catch { }
+    }
+  }, []);
+  const [assignedLawyer, setAssignedLawyer] = useState('Đang tải...');
 
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,20 +64,29 @@ export function LawyerDocumentView() {
     try {
       setIsLoading(true);
       const docs = await lawyerDocumentAPI.getDocuments();
-      const convertedDocs = docs.map(d => ({
+      const convertedDocs = docs.map((d: any) => ({
         id: d.id,
-        name: d.name,
-        type: d.type,
-        issueDate: new Date(d.issueDate),
-        uploadDate: new Date(d.uploadDate),
-        size: d.size,
-        reviewStatus: d.reviewStatus,
+        name: d.name || d.title || 'Untitled',
+        type: d.type || 'Unknown',
+        issueDate: d.issueDate ? new Date(d.issueDate) : new Date(d.uploadDate || Date.now()),
+        uploadDate: d.uploadDate ? new Date(d.uploadDate) : new Date(),
+        size: d.size || '0 KB',
+        reviewStatus: d.reviewStatus || 'pending',
         feedback: d.feedback,
         reviewDate: d.reviewDate ? new Date(d.reviewDate) : undefined,
-        uploadedBy: d.uploadedBy,
+        uploadedBy: d.uploadedBy || 'Unknown',
         dataScientistFeedback: d.dataScientistFeedback,
       }));
       setDocuments(convertedDocs);
+
+      // Update assigned lawyer display based on unique uploaders in the list
+      // This matches the requirement: "Modify the assginedLawyer in LAwyer UI. it is indeed the uploaded laywer's name."
+      const uniqueUploaders = Array.from(new Set(convertedDocs.map((d: any) => d.uploadedBy))).filter(name => name !== 'Unknown');
+      if (uniqueUploaders.length > 0) {
+        setAssignedLawyer(uniqueUploaders.join(', '));
+      } else {
+        setAssignedLawyer('Chưa có tài liệu được phân công');
+      }
     } catch (error) {
       console.error('Error loading documents:', error);
     } finally {
@@ -82,14 +101,70 @@ export function LawyerDocumentView() {
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadDocType, setUploadDocType] = useState('luat-tncn');
+  const [uploadIssueDate, setUploadIssueDate] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
   const [reviewAction, setReviewAction] = useState<'reviewed' | 'approved'>('reviewed');
 
-  const filteredDocuments = documents.filter((doc) => {
+  // ... (existing code)
+
+  const handleFileUpload = async () => {
+    if (!selectedFile) {
+      alert("Vui lòng chọn file");
+      return;
+    }
+    if (!uploadDocType) {
+      alert("Vui lòng chọn loại tài liệu");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('title', selectedFile.name.replace(/\.[^/.]+$/, "")); // Auto title from filename
+      formData.append('tax_type', uploadDocType);
+      if (uploadIssueDate) {
+        // Backend might not support issue_date in create endpoint yet?
+        // Checking backend code... document_routes.py create_document (lines 136-188)
+        // It reads: title, description, tax_type, file.
+        // It DOES NOT read 'issue_date' from form. It uses func.now() for created_at.
+        // The requirement didn't strictly say I must save issue_date, but the UI has it.
+        // I'll append it anyway, maybe backend ignores it, or I should update backend if critical.
+        // Requirement says "upload documents (use /create endpoint as written)".
+        // "as written" implies don't change backend create if possible.
+        // So I will just send it, if backend ignores, fine. 
+        // Or I can add 'description' if useful.
+        formData.append('issue_date', uploadIssueDate);
+      }
+
+      await lawyerDocumentAPI.uploadDocument(formData);
+
+      // Refresh list
+      await loadDocuments();
+
+      // Reset and close
+      setSelectedFile(null);
+      setUploadIssueDate('');
+      setIsUploadOpen(false);
+      alert("Tải lên thành công!");
+    } catch (e) {
+      console.error("Upload failed", e);
+      alert("Tải lên thất bại: " + (e as Error).message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const filteredDocuments = documents.filter((doc: Document) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'all' || doc.type === filterType;
     const matchesReviewStatus = filterReviewStatus === 'all' || doc.reviewStatus === filterReviewStatus;
     return matchesSearch && matchesType && matchesReviewStatus;
   });
+
+  // ... (lines 103-277 unchanged)
 
   const documentTypes = Array.from(new Set(documents.map((doc) => doc.type)));
 
@@ -99,7 +174,7 @@ export function LawyerDocumentView() {
 
   const handleReviewSubmit = async () => {
     if (!selectedDoc) return;
-    
+
     try {
       // Call API to review document
       const updatedDoc = await lawyerDocumentAPI.reviewDocument(
@@ -107,19 +182,19 @@ export function LawyerDocumentView() {
         reviewAction,
         reviewFeedback
       );
-      
+
       // Update local state
-      setDocuments(documents.map(doc => 
-        doc.id === selectedDoc.id 
+      setDocuments(documents.map(doc =>
+        doc.id === selectedDoc.id
           ? {
-              ...doc,
-              reviewStatus: updatedDoc.reviewStatus,
-              feedback: updatedDoc.feedback,
-              reviewDate: updatedDoc.reviewDate ? new Date(updatedDoc.reviewDate) : undefined,
-            }
+            ...doc,
+            reviewStatus: updatedDoc.reviewStatus,
+            feedback: updatedDoc.feedback,
+            reviewDate: updatedDoc.reviewDate ? new Date(updatedDoc.reviewDate) : undefined,
+          }
           : doc
       ));
-      
+
       setIsReviewOpen(false);
       setSelectedDoc(null);
       setReviewFeedback('');
@@ -134,17 +209,31 @@ export function LawyerDocumentView() {
     setIsReviewOpen(true);
   };
 
-  const handleRemoveDocument = async (docId: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa tài liệu này?')) {
+  const handleRejectDocument = async (docId: string) => {
+    if (confirm('Bạn có muốn TỪ CHỐI tài liệu này không? (Hành động này sẽ chuyển trạng thái sang Bị từ chối)')) {
       try {
-        // Call API to remove document
-        await lawyerDocumentAPI.removeDocument(docId);
-        
+        // "remove document at lawyer ui indeeds reject only"
+        // We use reviewDocument with status 'rejected'
+        await lawyerDocumentAPI.reviewDocument(docId, 'rejected', 'Từ chối nhanh từ giao diện danh sách');
+
         // Update local state
-        setDocuments(documents.filter(doc => doc.id !== docId));
+        setDocuments(documents.map(doc =>
+          doc.id === docId
+            ? { ...doc, reviewStatus: 'rejected', feedback: 'Từ chối nhanh từ giao diện danh sách' }
+            : doc
+        ));
       } catch (error) {
-        console.error('Error removing document:', error);
+        console.error('Error rejecting document:', error);
       }
+    }
+  };
+
+  const handleDownload = async (doc: Document) => {
+    try {
+      await lawyerDocumentAPI.downloadDocument(doc.id, doc.name);
+    } catch (e) {
+      console.error("Download failed", e);
+      alert("Không thể tải xuống tài liệu");
     }
   };
 
@@ -174,10 +263,10 @@ export function LawyerDocumentView() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h2 className="text-gray-900">Quản lý Tài liệu Luật Thuế</h2>
-            <p className="text-gray-500">Tải lên, xem xét và đánh giá các văn bản pháp luật về thuế</p>
+            <h2 className="text-gray-900 font-bold text-xl">Xin chào, {currentLawyer}</h2>
+            <p className="text-gray-500">Quản lý tài liệu và đánh giá chéo các văn bản pháp luật</p>
           </div>
-          
+
           <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
@@ -194,12 +283,19 @@ export function LawyerDocumentView() {
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="file">Chọn file (PDF/DOCX)</Label>
-                  <Input id="file" type="file" accept=".pdf,.docx" />
+                  <Label htmlFor="file">Chọn file (TXT)</Label>
+                  <Input
+                    id="file"
+                    type="file"
+                    accept=".txt"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
+                    }}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="docType">Loại tài liệu</Label>
-                  <Select>
+                  <Select value={uploadDocType} onValueChange={setUploadDocType}>
                     <SelectTrigger id="docType">
                       <SelectValue placeholder="Chọn loại tài liệu" />
                     </SelectTrigger>
@@ -209,15 +305,25 @@ export function LawyerDocumentView() {
                       <SelectItem value="thong-tu">Thông tư</SelectItem>
                       <SelectItem value="nghi-dinh">Nghị định</SelectItem>
                       <SelectItem value="huong-dan">Hướng dẫn</SelectItem>
+                      <SelectItem value="khac">Khác</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="issueDate">Ngày ban hành</Label>
-                  <Input id="issueDate" type="date" />
+                  <Input
+                    id="issueDate"
+                    type="date"
+                    value={uploadIssueDate}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUploadIssueDate(e.target.value)}
+                  />
                 </div>
-                <Button className="w-full bg-[#1E88E5] hover:bg-[#1976D2]" onClick={() => setIsUploadOpen(false)}>
-                  Tải lên
+                <Button
+                  className="w-full bg-[#1E88E5] hover:bg-[#1976D2]"
+                  onClick={handleFileUpload}
+                  disabled={isUploading}
+                >
+                  {isUploading ? "Đang tải lên..." : "Tải lên"}
                 </Button>
               </div>
             </DialogContent>
@@ -280,7 +386,7 @@ export function LawyerDocumentView() {
             <div>
               <p className="text-sm text-gray-900">Hệ thống đánh giá chéo (Peer Review)</p>
               <p className="text-sm text-gray-600 mt-1">
-                Bạn đang đánh giá tài liệu từ <span className="font-medium text-[#1E88E5]">{assignedLawyer}</span>. 
+                Bạn đang đánh giá tài liệu từ <span className="font-medium text-[#1E88E5]">{assignedLawyer}</span>.
                 Hệ thống tự động phân công ngẫu nhiên để đảm bảo tính khách quan trong đánh giá tài liệu pháp luật.
               </p>
             </div>
@@ -294,7 +400,7 @@ export function LawyerDocumentView() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                 placeholder="Tìm kiếm tài liệu..."
                 className="pl-10"
               />
@@ -342,7 +448,7 @@ export function LawyerDocumentView() {
             <TableBody>
               {filteredDocuments.map((doc) => {
                 const statusBadge = getReviewStatusBadge(doc.reviewStatus);
-                
+
                 return (
                   <TableRow key={doc.id}>
                     <TableCell>
@@ -371,26 +477,27 @@ export function LawyerDocumentView() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
                           title="Tải xuống"
+                          onClick={() => handleDownload(doc)}
                         >
                           <Download className="w-4 h-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
                           onClick={() => openReviewDialog(doc)}
                           title="Xem xét và đánh giá"
                         >
                           <MessageSquare className="w-4 h-4 text-[#1E88E5]" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveDocument(doc.id)}
-                          title="Xóa tài liệu"
+                          onClick={() => handleRejectDocument(doc.id)}
+                          title="Từ chối tài liệu"
                           className="text-red-500 hover:text-red-700 hover:bg-red-50"
                         >
                           <XCircle className="w-4 h-4" />
@@ -482,7 +589,7 @@ export function LawyerDocumentView() {
               <Button variant="outline" onClick={() => setIsReviewOpen(false)}>
                 Hủy
               </Button>
-              <Button 
+              <Button
                 className="bg-[#1E88E5] hover:bg-[#1976D2]"
                 onClick={handleReviewSubmit}
               >

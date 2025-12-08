@@ -63,3 +63,64 @@ export const userChatAPI = {
         return handleResponse(response);
     },
 };
+
+export const lawyerDocumentAPI = {
+    getDocuments: async () => {
+        const response = await fetch(`${API_URL}/documents/list`, {
+            headers: { ...getAuthHeader() },
+        });
+        const data = await handleResponse(response);
+        return data.documents;
+    },
+
+    reviewDocument: async (docId: string, status: 'reviewed' | 'approved' | 'rejected', feedback: string) => {
+        const response = await fetch(`${API_URL}/documents/${docId}/status`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeader()
+            },
+            body: JSON.stringify({ status, feedback }),
+        });
+        const data = await handleResponse(response);
+        return {
+            reviewStatus: data.status,
+            feedback: data.feedback,
+            reviewDate: new Date().toISOString() // API might not return date, assume now
+        };
+    },
+
+    removeDocument: async (docId: string) => {
+        const response = await fetch(`${API_URL}/documents/${docId}`, {
+            method: 'DELETE',
+            headers: { ...getAuthHeader() },
+        });
+        return handleResponse(response);
+    },
+
+    uploadDocument: async (formData: FormData) => {
+        const response = await fetch(`${API_URL}/documents/create`, {
+            method: 'POST',
+            headers: { ...getAuthHeader() }, // Content-Type is auto-set for FormData
+            body: formData,
+        });
+        return handleResponse(response);
+    },
+
+    downloadDocument: async (docId: string, filename: string) => {
+        const response = await fetch(`${API_URL}/documents/${docId}/file`, {
+            headers: { ...getAuthHeader() },
+        });
+        if (!response.ok) throw new Error('Download failed');
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename; // This might be overridden by Content-Disposition if present, but good fallback
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    }
+};

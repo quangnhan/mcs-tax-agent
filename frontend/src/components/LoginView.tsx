@@ -90,7 +90,7 @@ export function LoginView({ onLogin }: LoginViewProps) {
           <p className="text-xs text-gray-500 mb-2">Tài khoản demo:</p>
           <div className="space-y-1 text-xs text-gray-600">
             <p>👤 Người dùng: user / user123</p>
-            <p>⚖️ Luật sư: lawyer / lawyer123</p>
+            <p>⚖️ Luật sư: lawyer1 / lawyer123</p>
             <p>📊 Data Scientist: scientist / scientist123</p>
           </div>
         </div>

@@ -98,21 +98,22 @@ def seed_data():
         db.session.add(admin)
         
         # Other credentials
-        CREDENTIALS = {
-            "user": { "username": 'user', "password": 'user123' },
-            "lawyer": { "username": 'lawyer', "password": 'lawyer123' },
-            "data_scientist": { "username": 'scientist', "password": 'scientist123' },
-        }
+        CREDENTIALS = [
+            { "username": 'user', "password": 'user123', "role": 'user' },
+            { "username": 'lawyer1', "password": 'lawyer123', "role": 'lawyer' },
+            { "username": 'lawyer2', "password": 'lawyer123', "role": 'lawyer' },
+            { "username": 'lawyer3', "password": 'lawyer123', "role": 'lawyer' },
+            { "username": 'scientist', "password": 'scientist123', "role": 'data_scientist' },
+        ]
 
         created_users = {}
         
-        for role_key, creds in CREDENTIALS.items():
+        for creds in CREDENTIALS:
             username = creds["username"]
             password = creds["password"]
             email = f"{username}@taxlaw.vn"
             
-            # Map role string to enum value
-            db_role = role_key.replace("-", "_")
+            db_role = creds["role"]
             
             new_user = User(
                 email=email,
@@ -121,7 +122,7 @@ def seed_data():
                 role=db_role
             )
             db.session.add(new_user)
-            created_users[role_key] = new_user
+            created_users[db_role] = new_user
             print(f"Added user: {email} with role {db_role}")
             
         db.session.commit()
@@ -129,12 +130,14 @@ def seed_data():
         # Need to refresh objects to get IDs
         # admin is already bound, others in created_users dictionary
         # Explicitly query if needed or trust session refresh
-        lawyer_user = User.query.filter_by(email="lawyer@taxlaw.vn").first()
+        lawyer1 = User.query.filter_by(email="lawyer1@taxlaw.vn").first()
+        lawyer2 = User.query.filter_by(email="lawyer2@taxlaw.vn").first()
+        lawyer3 = User.query.filter_by(email="lawyer3@taxlaw.vn").first()
         normal_user = User.query.filter_by(email="user@taxlaw.vn").first()
         
         # 2. Insert Documents
         print("Seeding documents...")
-        for doc_data in documents_data:
+        for i, doc_data in enumerate(documents_data):
             # Construct correct absolute file path
             file_path = os.path.join(UPLOAD_DIR, doc_data["stored_filename"])
             
@@ -143,8 +146,21 @@ def seed_data():
                 print(f"Warning: File {doc_data['stored_filename']} not found in {UPLOAD_DIR}. Skipping.")
                 continue
 
-            # Assign to lawyer if available, else admin
-            uploader_id = lawyer_user.id if lawyer_user else admin.id
+            # Distribute uploads among lawyers
+            # 0,3,6 -> lawyer1
+            # 1,4 -> lawyer2
+            # 2,5 -> lawyer3
+            if i % 3 == 0:
+                uploader_id = lawyer1.id if lawyer1 else admin.id
+            elif i % 3 == 1:
+                uploader_id = lawyer2.id if lawyer2 else admin.id
+            else:
+                uploader_id = lawyer3.id if lawyer3 else admin.id
+            
+            # REQUIREMENT: second lawyer's documents (lawyer2) are assigned to the first lawyer (lawyer1)
+            assigned_lawyer_id = None
+            if uploader_id == (lawyer2.id if lawyer2 else -1):
+                assigned_lawyer_id = lawyer1.id if lawyer1 else None
 
             new_doc = Document(
                 title=doc_data["title"],
@@ -154,6 +170,7 @@ def seed_data():
                 size_bytes=doc_data["size_bytes"],
                 file_path=file_path,
                 upload_lawyer_id=uploader_id,
+                assigned_lawyer_id=assigned_lawyer_id,
                 status=doc_data["status"],
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()

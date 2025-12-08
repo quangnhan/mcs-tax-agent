@@ -8,13 +8,27 @@ import { DataScientistView } from './components/DataScientistView';
 export type UserRole = 'user' | 'lawyer' | 'data-scientist';
 
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
+  const [currentRole, setCurrentRole] = useState<UserRole | null>(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        return user.role;
+      } catch (e) {
+        console.error("Failed to parse user from local storage", e);
+        return null;
+      }
+    }
+    return null;
+  });
 
   const handleLogin = (role: UserRole) => {
     setCurrentRole(role);
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setCurrentRole(null);
   };
 

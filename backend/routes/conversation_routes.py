@@ -6,6 +6,7 @@ from models.message import Message
 from sqlalchemy import desc
 from agent.tax_law_agent import TaxLawAgent
 from datetime import datetime
+from models.retrieval_match import RetrievalMatch
 
 convo_bp = Blueprint("conversation", __name__)
 
@@ -73,6 +74,32 @@ def add_message(conv_id):
         # For now, we call it synchronously
         agent_response = TaxLawAgent.ask(text)
         bot_text = agent_response.get("answer", "Xin lỗi, tôi không thể trả lời lúc này.")
+        
+        # Log Retrieval Match
+        best_score = agent_response.get("best_score", 0.0)
+        sources = agent_response.get("sources", [])
+        top_source = sources[0] if sources else {}
+        
+        # Infer status
+        if best_score >= 0.8:
+            status_val = "accurate"
+        elif best_score >= 0.5:
+            status_val = "partial"
+        else:
+            status_val = "inaccurate"
+            
+        retrieval_match = RetrievalMatch(
+            conversation_id=conv_id,
+            user_query=text,
+            chatbot_response=bot_text,
+            retrieved_snippet=top_source.get("snippet", ""),
+            document_source=top_source.get("filename", ""),
+            similarity_score=best_score,
+            status=status_val
+        )
+        db.session.add(retrieval_match)
+        # We will commit when saving bot_msg
+        
     except Exception as e:
         print(f"Agent Error: {e}")
         bot_text = "Đã xảy ra lỗi khi xử lý yêu cầu của bạn."

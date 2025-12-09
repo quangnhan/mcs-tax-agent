@@ -210,7 +210,7 @@ def create_document():
 @document_bp.post("/<int:doc_id>/review")
 @jwt_required()
 def review_document(doc_id):
-    if not require_role(["lawyer"]):
+    if not require_role(["admin", "lawyer"]):
         return jsonify({"error": "Permission denied"}), 403
 
     doc = Document.query.get_or_404(doc_id)
@@ -246,7 +246,7 @@ def review_document(doc_id):
 @document_bp.post("/<int:doc_id>/approve")
 @jwt_required()
 def approve_document(doc_id):
-    if not require_role(["admin"]):
+    if not require_role(["admin", "data_scientist"]):
         return jsonify({"error": "Permission denied"}), 403
 
     doc = Document.query.get_or_404(doc_id)
@@ -326,7 +326,7 @@ def approve_document(doc_id):
 @document_bp.post("/<int:doc_id>/reject")
 @jwt_required()
 def reject_document(doc_id):
-    if not require_role(["admin"]):
+    if not require_role(["admin", "lawyer", "data_scientist"]):
         return jsonify({"error": "Permission denied"}), 403
 
     doc = Document.query.get_or_404(doc_id)
@@ -337,6 +337,17 @@ def reject_document(doc_id):
     doc.status = "rejected"
 
     user_id = int(get_jwt_identity())
+
+    # 1. Xóa khỏi Chroma trước (nếu đã từng được index)
+    if doc.in_vector_db and require_role(["admin", "data_scientist"]):
+        try:
+            DocumentService.remove_document(doc.id)
+            doc.in_vector_db = False
+            db.session.commit()
+            print(f"Document {doc.id} removed from ChromaDB during deletion")
+        except Exception as e:
+            print(f"Failed to remove doc {doc.id} from Chroma (continuing anyway): {e}")
+            # Không raise lỗi – vẫn cho phép xóa file và DB
 
     log = DocumentAuditLog(
         document_id=doc.id,
@@ -360,7 +371,7 @@ def reject_document(doc_id):
 @document_bp.delete("/<int:doc_id>")
 @jwt_required()
 def delete_document(doc_id):
-    if not require_role(["admin"]):
+    if not require_role(["admin", "data_scientist"]):
         return jsonify({"error": "Permission denied"}), 403
 
     doc = Document.query.get_or_404(doc_id)
@@ -371,6 +382,8 @@ def delete_document(doc_id):
     if doc.in_vector_db:
         try:
             DocumentService.remove_document(doc.id)
+            doc.in_vector_db = False
+            db.session.commit()
             print(f"Document {doc.id} removed from ChromaDB during deletion")
         except Exception as e:
             print(f"Failed to remove doc {doc.id} from Chroma (continuing anyway): {e}")
@@ -422,20 +435,20 @@ def delete_document(doc_id):
 def update_document_status(doc_id):
     """
     API cập nhật trạng thái tài liệu:
-    - status: pending / reviewed / approved / rejected
+    - status: pending / reviewed / rejected
     - feedback: nhận xét (review) hoặc lý do (reject)
     Luôn ghi log vào DocumentAuditLog.
     """
 
-    # Giới hạn role: lawyer + admin
-    if not require_role(["admin", "lawyer"]):
+    # Giới hạn role: lawyer + admin + data_scientist
+    if not require_role(["admin", "lawyer", "data_scientist"]):
         return jsonify({"error": "Permission denied"}), 403
 
     data = request.get_json() or {}
     new_status = str(data.get("status", "")).strip().lower()
     feedback = data.get("feedback")
 
-    valid_status = ["pending", "reviewed", "approved", "rejected"]
+    valid_status = ["pending", "reviewed", "rejected"]
     if new_status not in valid_status:
         return jsonify({"error": "Invalid status"}), 400
 

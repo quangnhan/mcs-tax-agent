@@ -105,7 +105,7 @@ export function LawyerDocumentView() {
   const [uploadDocType, setUploadDocType] = useState('luat-tncn');
   const [uploadIssueDate, setUploadIssueDate] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [reviewAction, setReviewAction] = useState<'reviewed' | 'approved'>('reviewed');
+  const [reviewAction, setReviewAction] = useState<'reviewed'>('reviewed');
 
   // ... (existing code)
 
@@ -157,12 +157,14 @@ export function LawyerDocumentView() {
     }
   };
 
-  const filteredDocuments = documents.filter((doc: Document) => {
-    const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = filterType === 'all' || doc.type === filterType;
-    const matchesReviewStatus = filterReviewStatus === 'all' || doc.reviewStatus === filterReviewStatus;
-    return matchesSearch && matchesType && matchesReviewStatus;
-  });
+  const filteredDocuments = documents
+    .filter((doc: Document) => doc.reviewStatus !== 'approved') // Hide approved documents
+    .filter((doc: Document) => {
+      const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesType = filterType === 'all' || doc.type === filterType;
+      const matchesReviewStatus = filterReviewStatus === 'all' || doc.reviewStatus === filterReviewStatus;
+      return matchesSearch && matchesType && matchesReviewStatus;
+    });
 
   // ... (lines 103-277 unchanged)
 
@@ -239,8 +241,6 @@ export function LawyerDocumentView() {
 
   const getReviewStatusBadge = (status: string) => {
     switch (status) {
-      case 'approved':
-        return { label: 'Đã phê duyệt', color: 'bg-[#1E88E5]' };
       case 'reviewed':
         return { label: 'Đã xem xét', color: 'bg-green-500' };
       case 'pending':
@@ -254,7 +254,6 @@ export function LawyerDocumentView() {
 
   const pendingCount = documents.filter(d => d.reviewStatus === 'pending').length;
   const reviewedCount = documents.filter(d => d.reviewStatus === 'reviewed').length;
-  const approvedCount = documents.filter(d => d.reviewStatus === 'approved').length;
   const rejectedCount = documents.filter(d => d.reviewStatus === 'rejected').length;
 
   return (
@@ -331,12 +330,12 @@ export function LawyerDocumentView() {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Tổng tài liệu</p>
-                <p className="text-gray-900">{documents.length}</p>
+                <p className="text-gray-900">{filteredDocuments.length}</p>
               </div>
               <FileText className="w-8 h-8 text-[#1E88E5]" />
             </div>
@@ -357,15 +356,6 @@ export function LawyerDocumentView() {
                 <p className="text-gray-900">{reviewedCount}</p>
               </div>
               <MessageSquare className="w-8 h-8 text-green-500" />
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Đã phê duyệt</p>
-                <p className="text-gray-900">{approvedCount}</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-[#1E88E5]" />
             </div>
           </Card>
           <Card className="p-4">
@@ -425,7 +415,7 @@ export function LawyerDocumentView() {
                 <SelectItem value="all">Tất cả trạng thái</SelectItem>
                 <SelectItem value="pending">Chờ xem xét</SelectItem>
                 <SelectItem value="reviewed">Đã xem xét</SelectItem>
-                <SelectItem value="approved">Đã phê duyệt</SelectItem>
+                <SelectItem value="rejected">Bị từ chối</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -562,13 +552,12 @@ export function LawyerDocumentView() {
 
                 <div className="space-y-2">
                   <Label htmlFor="reviewAction">Hành động</Label>
-                  <Select value={reviewAction} onValueChange={(value: 'reviewed' | 'approved') => setReviewAction(value)}>
+                  <Select value={reviewAction} onValueChange={(value: 'reviewed') => setReviewAction(value)}>
                     <SelectTrigger id="reviewAction">
                       <SelectValue placeholder="Chọn hành động" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="reviewed">Đánh dấu đã xem xét</SelectItem>
-                      <SelectItem value="approved">Phê duyệt tài liệu</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

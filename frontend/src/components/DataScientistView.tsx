@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { FileText, Search, ChevronDown, ChevronUp, Eye, CheckCircle, XCircle, Download, Loader2, Database, Trash2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { dataScientistAPI } from '../services/mockApi';
+import { dataScientistAPI } from '../services/api';
 import {
   BarChart,
   Bar,
@@ -47,13 +47,13 @@ interface DatabaseDocument {
   uploadedBy: string;
   uploadDate: Date;
   lawyerFeedback?: string;
-  lawyerAction: 'add' | 'remove';
+  status: 'pending' | 'reviewed' | 'approved' | 'rejected';
   reviewedBy?: string;
   reviewDate?: Date;
   dsApproved: boolean;
   appliedToDatabase: boolean;
   isApplying?: boolean;
-  selectedAction?: 'approve-add' | 'approve-remove' | 'reject-send-back' | 'remove-from-db' | 'sent-back';
+  selectedAction?: 'approve-add' | 'approve-remove' | 'reject' | 'remove-from-db';
 }
 
 export function DataScientistView() {
@@ -63,20 +63,14 @@ export function DataScientistView() {
   const [applyProgress, setApplyProgress] = useState(0);
   const [feedbackDialog, setFeedbackDialog] = useState<DatabaseDocument | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Database documents
   const [databaseDocs, setDatabaseDocs] = useState<DatabaseDocument[]>([]);
 
   const [retrievalMatches, setRetrievalMatches] = useState<RetrievalMatch[]>([]);
 
   // Similarity distribution data
-  const similarityDistribution = [
-    { range: '0-20%', count: 12 },
-    { range: '20-40%', count: 28 },
-    { range: '40-60%', count: 45 },
-    { range: '60-80%', count: 156 },
-    { range: '80-100%', count: 243 },
-  ];
+  const [similarityDistribution, setSimilarityDistribution] = useState<any[]>([]);
 
   // Load data on mount
   useEffect(() => {
@@ -86,35 +80,39 @@ export function DataScientistView() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      
+
       // Load retrieval matches
       const matches = await dataScientistAPI.getRetrievalMatches();
-      const convertedMatches = matches.map(m => ({
+      const convertedMatches = matches.map((m: any) => ({
         id: m.id,
-        userQuery: m.userQuery,
-        chatbotResponse: m.chatbotResponse,
-        retrievedSnippet: m.retrievedSnippet,
-        documentSource: m.documentSource,
-        similarityScore: m.similarityScore,
-        timestamp: new Date(m.timestamp),
+        userQuery: m.user_query,
+        chatbotResponse: m.chatbot_response,
+        retrievedSnippet: m.retrieved_snippet,
+        documentSource: m.document_source,
+        similarityScore: m.similarity_score,
+        timestamp: m.created_at ? new Date(m.created_at) : new Date(),
         status: m.status,
       }));
       setRetrievalMatches(convertedMatches);
 
+      // Load similarity stats
+      const stats = await dataScientistAPI.getSimilarityDistribution();
+      setSimilarityDistribution(stats);
+
       // Load database documents
       const docs = await dataScientistAPI.getDatabaseDocuments();
-      const convertedDocs = docs.map(d => ({
+      const convertedDocs = docs.map((d: any) => ({
         id: d.id,
-        name: d.name,
-        type: d.type,
-        uploadedBy: d.uploadedBy,
-        uploadDate: new Date(d.uploadDate),
-        lawyerFeedback: d.lawyerFeedback,
-        lawyerAction: d.lawyerAction,
-        reviewedBy: d.reviewedBy,
+        name: d.name || d.title || 'Untitled',
+        type: d.type || d.tax_type || 'Unknown',
+        uploadedBy: d.uploadedBy || 'Unknown',
+        uploadDate: d.uploadDate ? new Date(d.uploadDate) : new Date(),
+        lawyerFeedback: d.feedback, // mapped from lawyer_feedback in backend list_documents
+        status: d.reviewStatus,
+        reviewedBy: 'Luật sư', // Backend doesn't provide reviewer name yet, placeholder
         reviewDate: d.reviewDate ? new Date(d.reviewDate) : undefined,
-        dsApproved: d.dsApproved,
-        appliedToDatabase: d.appliedToDatabase,
+        dsApproved: d.reviewStatus === 'approved',
+        appliedToDatabase: d.in_vector_db,
       }));
       setDatabaseDocs(convertedDocs);
     } catch (error) {
@@ -159,10 +157,10 @@ export function DataScientistView() {
     try {
       // Call API to export data
       const jsonData = await dataScientistAPI.exportRetrievalData();
-      
-      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(jsonData);
+
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(jsonData);
       const exportFileDefaultName = `retrieval-matches-${new Date().toISOString().split('T')[0]}.json`;
-      
+
       const linkElement = document.createElement('a');
       linkElement.setAttribute('href', dataUri);
       linkElement.setAttribute('download', exportFileDefaultName);
@@ -181,60 +179,46 @@ export function DataScientistView() {
       }
       return;
     }
-    
+
     // Otherwise, set the selected action
-    setDatabaseDocs(databaseDocs.map(doc => 
+    setDatabaseDocs(databaseDocs.map(doc =>
       doc.id === docId ? { ...doc, selectedAction: action as DatabaseDocument['selectedAction'] } : doc
     ));
   };
 
   const applySelectedAction = async (docId: string) => {
-    const doc = databaseDocs.find(d => d.id === docId);
+    const doc = databaseDocs.find((d: DatabaseDocument) => d.id === docId);
     if (!doc || !doc.selectedAction) return;
 
-    setDatabaseDocs(databaseDocs.map(d => 
+    setDatabaseDocs(databaseDocs.map((d: DatabaseDocument) =>
       d.id === docId ? { ...d, isApplying: true } : d
     ));
 
     try {
-      // Delete document from table for these actions:
-      // - sent-back and remove-from-db (for applied documents)
-      // - approve-remove (approving a lawyer's removal request)
-      // - reject-send-back (rejecting any document, including removal requests)
       if (
-        doc.selectedAction === 'sent-back' || 
         doc.selectedAction === 'remove-from-db' ||
-        doc.selectedAction === 'approve-remove' ||
-        doc.selectedAction === 'reject-send-back'
+        doc.selectedAction === 'approve-remove'
       ) {
         // Call API to remove document
         await dataScientistAPI.removeDocument(docId);
-        setDatabaseDocs(databaseDocs.filter(d => d.id !== docId));
+        // Reload data to reflect changes
+        await loadData();
         return;
       }
 
       // For approve-add action
       if (doc.selectedAction === 'approve-add') {
-        // Call API to update document status
-        await dataScientistAPI.updateDocumentStatus(docId, true, true);
-        
-        setDatabaseDocs(databaseDocs.map(d => {
-          if (d.id === docId) {
-            return { ...d, isApplying: false, dsApproved: true, appliedToDatabase: true, selectedAction: undefined };
-          }
-          return d;
-        }));
-      } else {
-        setDatabaseDocs(databaseDocs.map(d => {
-          if (d.id === docId) {
-            return { ...d, isApplying: false, selectedAction: undefined };
-          }
-          return d;
-        }));
+        await dataScientistAPI.updateDocumentStatus(docId, true);
+        // Reload data from server to get updated status and appliedToDatabase
+        await loadData();
+      } else if (doc.selectedAction === 'reject') {
+        await dataScientistAPI.updateDocumentStatus(docId, false);
+        // Reload data from server to get updated status
+        await loadData();
       }
     } catch (error) {
       console.error('Error applying action:', error);
-      setDatabaseDocs(databaseDocs.map(d => 
+      setDatabaseDocs(databaseDocs.map((d: DatabaseDocument) =>
         d.id === docId ? { ...d, isApplying: false } : d
       ));
     }
@@ -286,7 +270,7 @@ export function DataScientistView() {
                   <h3 className="text-gray-900">Phân phối độ tương đồng Retrieval</h3>
                   <p className="text-sm text-gray-500">Phân tích chất lượng truy xuất tài liệu</p>
                 </div>
-                <Button 
+                <Button
                   variant="outline"
                   onClick={exportToJSON}
                   className="gap-2"
@@ -413,7 +397,7 @@ export function DataScientistView() {
                   <Database className="w-8 h-8 text-[#1E88E5]" />
                 </div>
               </Card>
-              
+
               <Card className="p-4 bg-white">
                 <div className="flex items-center justify-between">
                   <div>
@@ -423,7 +407,7 @@ export function DataScientistView() {
                   <CheckCircle className="w-8 h-8 text-green-500" />
                 </div>
               </Card>
-              
+
               <Card className="p-4 bg-white">
                 <div className="flex items-center justify-between">
                   <div>
@@ -433,7 +417,7 @@ export function DataScientistView() {
                   <Database className="w-8 h-8 text-green-500" />
                 </div>
               </Card>
-              
+
               <Card className="p-4 bg-white">
                 <div className="flex items-center justify-between">
                   <div>
@@ -463,7 +447,7 @@ export function DataScientistView() {
               <div className="p-6">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-gray-900">Tất cả tài liệu trong hệ thống</h3>
-                  <Button 
+                  <Button
                     className="bg-green-600 hover:bg-green-700 gap-2"
                     onClick={handleApplyAll}
                     disabled={isApplyingAll || databaseDocs.filter(d => d.selectedAction).length === 0}
@@ -491,25 +475,24 @@ export function DataScientistView() {
                       <TableHead>Tên tài liệu</TableHead>
                       <TableHead>Loại</TableHead>
                       <TableHead>Tải lên bởi</TableHead>
-                      <TableHead>Hành động Luật sư</TableHead>
+                      <TableHead>Trạng thái</TableHead>
                       <TableHead>Trạng thái DB</TableHead>
                       <TableHead className="text-right">Thao tác</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {databaseDocs.map((doc) => {
-                      const getActionBadge = (action: string) => {
-                        switch (action) {
-                          case 'add':
-                            return { label: 'Thêm mới', color: 'bg-green-500' };
-                          case 'remove':
-                            return { label: 'Xóa bỏ', color: 'bg-red-500' };
-                          default:
-                            return { label: 'Unknown', color: 'bg-gray-500' };
+                      const getStatusBadge = (status: string) => {
+                        switch (status) {
+                          case 'pending': return { label: 'Pending', color: 'bg-gray-400' };
+                          case 'reviewed': return { label: 'Reviewed', color: 'bg-[#1E88E5]' };
+                          case 'approved': return { label: 'Approved', color: 'bg-green-500' };
+                          case 'rejected': return { label: 'Rejected', color: 'bg-red-500' };
+                          default: return { label: status, color: 'bg-gray-400' };
                         }
                       };
 
-                      const actionBadge = getActionBadge(doc.lawyerAction);
+                      const statusBadge = getStatusBadge(doc.status);
 
                       return (
                         <TableRow key={doc.id}>
@@ -526,8 +509,8 @@ export function DataScientistView() {
                             <span className="text-sm text-[#1E88E5]">{doc.uploadedBy}</span>
                           </TableCell>
                           <TableCell>
-                            <Badge className={actionBadge.color}>
-                              {actionBadge.label}
+                            <Badge className={statusBadge.color}>
+                              {statusBadge.label}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -558,8 +541,8 @@ export function DataScientistView() {
                                       Xem chi tiết
                                     </div>
                                   </SelectItem>
-                                  
-                                  {!doc.appliedToDatabase && doc.lawyerAction === 'add' && (
+
+                                  {doc.status === 'reviewed' && !doc.appliedToDatabase && (
                                     <SelectItem value="approve-add">
                                       <div className="flex items-center gap-2">
                                         <CheckCircle className="w-3 h-3 text-green-600" />
@@ -567,44 +550,36 @@ export function DataScientistView() {
                                       </div>
                                     </SelectItem>
                                   )}
-                                  
-                                  {!doc.appliedToDatabase && doc.lawyerAction === 'remove' && (
+
+
+                                  {doc.status === 'rejected' && !doc.appliedToDatabase && (
                                     <SelectItem value="approve-remove">
                                       <div className="flex items-center gap-2">
                                         <CheckCircle className="w-3 h-3 text-green-600" />
-                                        Phê duyệt Xóa
+                                        Phê duyệt Xóa khỏi DB
                                       </div>
                                     </SelectItem>
                                   )}
-                                  
-                                  {!doc.appliedToDatabase && (
-                                    <SelectItem value="reject-send-back">
-                                      <div className="flex items-center gap-2">
-                                        <XCircle className="w-3 h-3 text-red-600" />
-                                        Từ chối & Gửi lại
-                                      </div>
-                                    </SelectItem>
-                                  )}
-                                  
+
                                   {doc.appliedToDatabase && (
                                     <>
-                                      <SelectItem value="sent-back">
+                                      <SelectItem value="reject">
                                         <div className="flex items-center gap-2">
                                           <XCircle className="w-3 h-3 text-red-600" />
-                                          Gửi lại
+                                          Từ chối & Gửi lại
                                         </div>
                                       </SelectItem>
-                                      <SelectItem value="remove-from-db">
+                                      {/* <SelectItem value="remove-from-db">
                                         <div className="flex items-center gap-2">
                                           <Trash2 className="w-3 h-3 text-orange-600" />
                                           Xóa khỏi DB
                                         </div>
-                                      </SelectItem>
+                                    </SelectItem> */}
                                     </>
                                   )}
                                 </SelectContent>
                               </Select>
-                              
+
                               {doc.selectedAction && doc.selectedAction !== 'view' && (
                                 <Button
                                   size="sm"
@@ -637,7 +612,7 @@ export function DataScientistView() {
                 <div>
                   <p className="text-sm text-gray-900">Quy trình quản lý cơ sở dữ liệu</p>
                   <p className="text-sm text-gray-600 mt-1">
-                    Xem xét và phê duyệt các tài liệu đã được Luật sư đánh giá. Các tài liệu được phê duyệt sẽ được áp dụng vào cơ sở dữ liệu vector. 
+                    Xem xét và phê duyệt các tài liệu đã được Luật sư đánh giá. Các tài liệu được phê duyệt sẽ được áp dụng vào cơ sở dữ liệu vector.
                     Sử dụng "Apply" cho từng tài liệu hoặc "Apply All" để áp dụng tất cả tài liệu đã phê duyệt.
                   </p>
                 </div>
@@ -662,19 +637,19 @@ export function DataScientistView() {
                     <Label className="text-sm text-gray-500">Truy vấn người dùng</Label>
                     <p className="mt-2 text-sm">{fullTextDialog.userQuery}</p>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm text-gray-500">Phản hồi Chatbot</Label>
                     <p className="mt-2 text-sm text-gray-700">{fullTextDialog.chatbotResponse}</p>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm text-gray-500">Văn bản được trích xuất</Label>
                     <p className="mt-2 text-sm text-gray-700 bg-gray-50 p-4 rounded italic">
                       "{fullTextDialog.retrievedSnippet}"
                     </p>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label className="text-sm text-gray-500">Nguồn tài liệu</Label>
@@ -685,12 +660,12 @@ export function DataScientistView() {
                       <p className="mt-2 text-sm">{(fullTextDialog.similarityScore * 100).toFixed(2)}%</p>
                     </div>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm text-gray-500">Thời gian</Label>
                     <p className="mt-2 text-sm">{formatDate(fullTextDialog.timestamp)} {formatTime(fullTextDialog.timestamp)}</p>
                   </div>
-                  
+
                   <div>
                     <Label className="text-sm text-gray-500">Trạng thái</Label>
                     <div className="mt-2">
@@ -720,7 +695,7 @@ export function DataScientistView() {
                   <Label className="text-sm text-gray-500">Tên tài liệu</Label>
                   <p className="mt-2 text-sm">{feedbackDialog.name}</p>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-sm text-gray-500">Loại tài liệu</Label>
@@ -744,22 +719,22 @@ export function DataScientistView() {
                     </div>
                   </div>
                 )}
-                
+
                 <div>
-                  <Label className="text-sm text-gray-500">Hành động của Luật sư</Label>
+                  <Label className="text-sm text-gray-500">Trạng thái</Label>
                   <div className="mt-2">
                     <Badge className={
-                      feedbackDialog.lawyerAction === 'add' ? 'bg-green-500' :
-                      feedbackDialog.lawyerAction === 'update' ? 'bg-[#1E88E5]' :
-                      feedbackDialog.lawyerAction === 'remove' ? 'bg-red-500' : 'bg-gray-400'
+                      feedbackDialog.status === 'approved' ? 'bg-green-500' :
+                        feedbackDialog.status === 'reviewed' ? 'bg-[#1E88E5]' :
+                          feedbackDialog.status === 'rejected' ? 'bg-red-500' : 'bg-gray-400'
                     }>
-                      {feedbackDialog.lawyerAction === 'add' ? 'Thêm mới' :
-                       feedbackDialog.lawyerAction === 'update' ? 'Cập nhật' :
-                       feedbackDialog.lawyerAction === 'remove' ? 'Xóa bỏ' : 'Chưa đánh giá'}
+                      {feedbackDialog.status === 'approved' ? 'Approved' :
+                        feedbackDialog.status === 'reviewed' ? 'Reviewed' :
+                          feedbackDialog.status === 'rejected' ? 'Rejected' : 'Pending'}
                     </Badge>
                   </div>
                 </div>
-                
+
                 {feedbackDialog.lawyerFeedback && (
                   <div>
                     <Label className="text-sm text-gray-500">Nhận xét từ Luật sư</Label>
@@ -773,6 +748,6 @@ export function DataScientistView() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+    </div >
   );
 }

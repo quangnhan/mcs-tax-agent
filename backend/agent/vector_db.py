@@ -79,20 +79,15 @@ def similarity_search(question: str, k: int = 6):
         k (int): Number of most relevant chunks to return (default 6)
 
     Returns:
-        List[Document]: List of top-k relevant documents
+        List[(Document, float)]: List of tuples (Document, score)
     """
     if not question.strip():
         return []
 
     docs_with_scores = vectorstore.similarity_search_with_score(question, k=k)
 
-    # We only need the Document part (score is optional – you can include it later)
-    docs = [doc for doc, _score in docs_with_scores]
-
-    # Optional: uncomment if you want to see scores while debugging
-    # print("Top-k similarity scores:", [score for _, score in docs_with_scores])
-
-    return docs
+    # Return raw list of (doc, score)
+    return docs_with_scores
 
 
 # ================================================================

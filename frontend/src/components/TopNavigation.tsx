@@ -13,7 +13,7 @@ export function TopNavigation({ currentRole, onLogout }: TopNavigationProps) {
     switch (currentRole) {
       case 'user': return 'Người dùng';
       case 'lawyer': return 'Luật sư';
-      case 'data-scientist': return 'Data Scientist';
+      case 'data_scientist': return 'Data Scientist';
       default: return '';
     }
   };
@@ -22,7 +22,7 @@ export function TopNavigation({ currentRole, onLogout }: TopNavigationProps) {
     switch (currentRole) {
       case 'user': return MessageSquare;
       case 'lawyer': return FileText;
-      case 'data-scientist': return BarChart3;
+      case 'data_scientist': return BarChart3;
       default: return MessageSquare;
     }
   };

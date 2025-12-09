@@ -1,7 +1,7 @@
 # services/chroma_service.py
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LCDocument
-from .vector_db import insert_documents
+from .vector_db import insert_documents, vectorstore
 import logging
 from typing import Dict, Any
 
@@ -91,11 +91,28 @@ class DocumentService:
     def _delete_by_doc_id(doc_id: int) -> int:
         """Internal: xóa bằng metadata – không cần lưu ID"""
         try:
-            collection = get_vectorstore()._collection
-            results = collection.get(where={"doc_id": doc_id})
-            if results["ids"]:
-                collection.delete(ids=results["ids"])
-                return len(results["ids"])
+            from .vector_db import client, QDRANT_COLLECTION
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            
+            results = client.scroll(
+                collection_name=QDRANT_COLLECTION,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="metadata.doc_id",
+                            match=MatchValue(value=doc_id)
+                        )
+                    ]
+                ),
+                limit=1000,
+            )
+            ids_to_delete = [point.id for point in results[0]]
+            if ids_to_delete:
+                client.delete(
+                    collection_name=QDRANT_COLLECTION,
+                    points_selector=ids_to_delete,
+                )
+                return len(ids_to_delete)
             return 0
         except Exception as e:
             logging.warning(f"Delete by doc_id failed: {e}")

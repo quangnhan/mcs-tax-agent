@@ -124,3 +124,70 @@ export const lawyerDocumentAPI = {
         document.body.removeChild(a);
     }
 };
+
+export const dataScientistAPI = {
+    getRetrievalMatches: async () => {
+        const response = await fetch(`${API_URL}/retrieval/list`, {
+            headers: { ...getAuthHeader() },
+        });
+        return handleResponse(response);
+    },
+
+    getDatabaseDocuments: async () => {
+        // Re-use document list, which now supports DS seeing all (if we rely on admin permissions, or if DS role is treated same)
+        // Actually document list for non-lawyer returns all?
+        // Let's check backend list_documents. It filters if role=='lawyer'. Else returns all.
+        // So this is correct for DS.
+        const response = await fetch(`${API_URL}/documents/list`, {
+            headers: { ...getAuthHeader() },
+        });
+        const data = await handleResponse(response);
+        return data.documents;
+    },
+
+    exportRetrievalData: async () => {
+        const response = await fetch(`${API_URL}/retrieval/list`, {
+            headers: { ...getAuthHeader() },
+        });
+        const data = await handleResponse(response);
+        return JSON.stringify(data, null, 2);
+    },
+
+    removeDocument: async (docId: string) => {
+        const response = await fetch(`${API_URL}/documents/${docId}`, {
+            method: 'DELETE',
+            headers: { ...getAuthHeader() },
+        });
+        return handleResponse(response);
+    },
+
+    updateDocumentStatus: async (docId: string, approved: boolean) => {
+        // If approved=true, call /approve endpoint which also indexes to vector DB
+        // If approved=false, call /reject endpoint to set status to 'rejected'
+
+        if (approved) {
+            const response = await fetch(`${API_URL}/documents/${docId}/approve`, {
+                method: 'POST',
+                headers: { ...getAuthHeader() },
+            });
+            return handleResponse(response);
+        } else {
+            const response = await fetch(`${API_URL}/documents/${docId}/reject`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getAuthHeader()
+                },
+                body: JSON.stringify({ status: 'rejected', feedback: 'Rejected by Data Scientist' }),
+            });
+            return handleResponse(response);
+        }
+    },
+
+    getSimilarityDistribution: async () => {
+        const response = await fetch(`${API_URL}/retrieval/stats/similarity_distribution`, {
+            headers: { ...getAuthHeader() },
+        });
+        return handleResponse(response);
+    }
+}

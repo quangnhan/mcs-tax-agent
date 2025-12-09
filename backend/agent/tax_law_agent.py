@@ -27,7 +27,11 @@ Trả lời ngắn gọn, chính xác bằng tiếng Việt:
 class TaxLawAgent:
     @staticmethod
     def ask(question: str, k: int = 6):
-        docs = similarity_search(question, k=k)
+        docs_with_scores = similarity_search(question, k=k)
+        
+        # Unpack just docs for context
+        docs = [doc for doc, _ in docs_with_scores]
+        
         context = "\n\n".join([d.page_content for d in docs])
         answer = llm.invoke(
             PROMPT.format(context=context, question=question)
@@ -41,7 +45,12 @@ class TaxLawAgent:
                     if len(doc.page_content) > 500
                     else doc.page_content
                 ),
+                "score": float(score) # Convert numpy float if needed
             }
-            for doc in docs
+            for doc, score in docs_with_scores
         ]
-        return {"answer": answer, "sources": sources}
+        
+        # Determine best score
+        best_score = max([s for _, s in docs_with_scores]) if docs_with_scores else 0.0
+        
+        return {"answer": answer, "sources": sources, "best_score": float(best_score)}

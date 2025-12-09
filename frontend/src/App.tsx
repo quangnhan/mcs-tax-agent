@@ -5,7 +5,7 @@ import { UserChatView } from './components/UserChatView';
 import { LawyerDocumentView } from './components/LawyerDocumentView';
 import { DataScientistView } from './components/DataScientistView';
 
-export type UserRole = 'user' | 'lawyer' | 'data-scientist';
+export type UserRole = 'user' | 'lawyer' | 'data_scientist';
 
 export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole | null>(() => {
@@ -42,7 +42,7 @@ export default function App() {
         return <UserChatView />;
       case 'lawyer':
         return <LawyerDocumentView />;
-      case 'data-scientist':
+      case 'data_scientist':
         return <DataScientistView />;
       default:
         return <UserChatView />;

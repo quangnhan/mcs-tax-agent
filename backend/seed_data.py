@@ -13,79 +13,66 @@ from sqlalchemy import text
 
 # Define the base path for uploaded documents
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploaded_docs")
+SOURCE_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vector_database", "data")
 
-# Data from SQL dump
-documents_data = [
-    {
-        "title": "2_TÀI CHÍNH VÀ QUẢN LÝ TÀI CHÍNH NÂNG CAO",
-        "original_filename": "2_TÀI CHÍNH VÀ QUẢN LÝ TÀI CHÍNH NÂNG CAO.pdf",
-        "stored_filename": "b8d8ad400f99431bbf6d9a7df1cfa728_2_TÀI CHÍNH VÀ QUẢN LÝ TÀI CHÍNH NÂNG CAO.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 1674844,
-        "status": "pending"
-    },
-    {
-        "title": "3_THUẾ VÀ QUẢN LÝ THUẾ NÂNG CAO",
-        "original_filename": "3_THUẾ VÀ QUẢN LÝ THUẾ NÂNG CAO.pdf",
-        "stored_filename": "46ae88b4f0d24a80812449d2046de69e_3_THUẾ VÀ QUẢN LÝ THUẾ NÂNG CAO.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 3731551,
-        "status": "pending"
-    },
-    {
-        "title": "4_KẾ TOÁN TÀI CHÍNH, KẾ TOÁN QUẢN TRỊ NÂNG CAO",
-        "original_filename": "4_KẾ TOÁN TÀI CHÍNH, KẾ TOÁN QUẢN TRỊ NÂNG CAO.pdf",
-        "stored_filename": "acd9fb54529943edabe233a3efac887e_4_KẾ TOÁN TÀI CHÍNH, KẾ TOÁN QUẢN TRỊ NÂNG CAO.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 3188286,
-        "status": "pending"
-    },
-    {
-        "title": "1_PHÁP LUẬT VỀ KINH TẾ VÀ LUẬT DOANH NGHIỆP",
-        "original_filename": "1_PHÁP LUẬT VỀ KINH TẾ VÀ LUẬT DOANH NGHIỆP.pdf",
-        "stored_filename": "38925197063a441c8875f8959e16fdf7_1_PHÁP LUẬT VỀ KINH TẾ VÀ LUẬT DOANH NGHIỆP.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 1599136,
-        "status": "approved"
-    },
-    {
-        "title": "7_NGOẠI NGỮ (TIẾNG ANH)",
-        "original_filename": "7_NGOẠI NGỮ (TIẾNG ANH).pdf",
-        "stored_filename": "96c71af557854b5085a22eaed3e8fcea_7_NGOẠI NGỮ (TIẾNG ANH).pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 597709,
-        "status": "rejected"
-    },
-    {
-        "title": "6_PHÂN TÍCH HOẠT ĐỘNG TÀI CHÍNH NÂNG CAO",
-        "original_filename": "6_PHÂN TÍCH HOẠT ĐỘNG TÀI CHÍNH NÂNG CAO.pdf",
-        "stored_filename": "934220d83b5c4b31abfd52928da19ea3_6_PHÂN TÍCH HOẠT ĐỘNG TÀI CHÍNH NÂNG CAO.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 1722514,
-        "status": "approved"
-    },
-    {
-        "title": "5_KIỂM TOÁN VÀ DỊCH VỤ ĐẢM BẢO NÂNG CAO",
-        "original_filename": "5_KIỂM TOÁN VÀ DỊCH VỤ ĐẢM BẢO NÂNG CAO.pdf",
-        "stored_filename": "21c9a1cfd4d6402bbbc8cc4f44a52348_5_KIỂM TOÁN VÀ DỊCH VỤ ĐẢM BẢO NÂNG CAO.pdf",
-        "mime_type": "application/pdf",
-        "size_bytes": 3418924,
-        "status": "reviewed"
-    }
+# Data from vector_database/data - first 8 files
+source_files = [
+    "01_1998_QĐ-UB.txt",
+    "01_1998_TT-LTBLĐTBXH-BTC-BKHĐT.txt",
+    "01_1999_TCBĐ-TT.txt",
+    "01_1999_TTLT-LĐTBXH-TCCP.txt",
+    "01_2001_QĐ-BNN-TCCB.txt",
+    "01_2001_TT-TGCP.txt",
+    "01_2001_TTLT-BLĐTBXH-BTC.txt",
+    "01_2002_CT-BLĐTBXH.txt",
 ]
+
+# Status spread equally: 2 pending, 2 reviewed, 2 approved, 2 rejected
+statuses = ["pending", "pending", "reviewed", "reviewed", "approved", "approved", "rejected", "rejected"]
+
+documents_data = []
+for idx, filename in enumerate(source_files):
+    documents_data.append({
+        "source_filename": filename,
+        "title": filename.replace(".txt", "").replace("_", " "),
+        "original_filename": filename,
+        "stored_filename": f"seed_{idx}_{filename}",
+        "mime_type": "text/plain",
+        "status": statuses[idx]
+    })
 
 def seed_data():
     with app.app_context():
         print("Starting data seeding...")
         
-        # 0. Clean up existing data
+        # 0. Clear vector database
+        print("Clearing vector database...")
+        try:
+            from agent.vector_db import client, QDRANT_COLLECTION
+            if client.collection_exists(QDRANT_COLLECTION):
+                client.delete_collection(QDRANT_COLLECTION)
+                print(f"Deleted collection '{QDRANT_COLLECTION}'")
+            # Recreate collection
+            from agent.vector_db import embeddings, QDRANT_COLLECTION
+            from qdrant_client.http.models import Distance, VectorParams
+            dummy_vec = embeddings.embed_query("test")
+            vector_size = len(dummy_vec)
+            client.create_collection(
+                collection_name=QDRANT_COLLECTION,
+                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+            )
+            print(f"Recreated collection '{QDRANT_COLLECTION}'")
+        except Exception as e:
+            print(f"Warning: Could not clear vector database: {e}")
+        
+        # 1. Clean up existing data
         print("Cleaning up existing data...")
         # Order matters due to foreign keys
         db.session.execute(text("TRUNCATE TABLE retrieval_match, message, document_audit_log, conversation, documents, \"user\" RESTART IDENTITY CASCADE;"))
         db.session.commit()
         print("Data cleaned.")
         
-        # 1. Create Users
+        # 2. Create Users
         print("Creating users...")
         
         # Admin
@@ -128,27 +115,39 @@ def seed_data():
         db.session.commit()
         
         # Need to refresh objects to get IDs
-        # admin is already bound, others in created_users dictionary
-        # Explicitly query if needed or trust session refresh
         lawyer1 = User.query.filter_by(email="lawyer1@taxlaw.vn").first()
         lawyer2 = User.query.filter_by(email="lawyer2@taxlaw.vn").first()
         lawyer3 = User.query.filter_by(email="lawyer3@taxlaw.vn").first()
         normal_user = User.query.filter_by(email="user@taxlaw.vn").first()
         
-        # 2. Insert Documents
+        # 3. Copy files and Insert Documents
         print("Seeding documents...")
+        import shutil
+        
+        # Ensure upload directory exists
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        
         for i, doc_data in enumerate(documents_data):
-            # Construct correct absolute file path
-            file_path = os.path.join(UPLOAD_DIR, doc_data["stored_filename"])
+            # Source file path
+            source_path = os.path.join(SOURCE_DATA_DIR, doc_data["source_filename"])
             
-            # Check if file actually exists on disk
-            if not os.path.exists(file_path):
-                print(f"Warning: File {doc_data['stored_filename']} not found in {UPLOAD_DIR}. Skipping.")
+            if not os.path.exists(source_path):
+                print(f"Warning: Source file {doc_data['source_filename']} not found. Skipping.")
                 continue
+            
+            # Destination file path
+            dest_path = os.path.join(UPLOAD_DIR, doc_data["stored_filename"])
+            
+            # Copy file
+            shutil.copy2(source_path, dest_path)
+            print(f"Copied {doc_data['source_filename']} to {dest_path}")
+            
+            # Get file size
+            size_bytes = os.path.getsize(dest_path)
 
             # Distribute uploads among lawyers
             # 0,3,6 -> lawyer1
-            # 1,4 -> lawyer2
+            # 1,4,7 -> lawyer2
             # 2,5 -> lawyer3
             if i % 3 == 0:
                 uploader_id = lawyer1.id if lawyer1 else admin.id
@@ -167,16 +166,38 @@ def seed_data():
                 original_filename=doc_data["original_filename"],
                 stored_filename=doc_data["stored_filename"],
                 mime_type=doc_data["mime_type"],
-                size_bytes=doc_data["size_bytes"],
-                file_path=file_path,
+                size_bytes=size_bytes,
+                file_path=dest_path,
                 upload_lawyer_id=uploader_id,
                 assigned_lawyer_id=assigned_lawyer_id,
                 status=doc_data["status"],
+                in_vector_db=False,  # Will be set to True after indexing
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
             db.session.add(new_doc)
-            print(f"Added document: {doc_data['title']}")
+            db.session.flush()  # Get the ID
+            
+            # Index approved documents
+            if doc_data["status"] == "approved":
+                print(f"Indexing approved document: {doc_data['title']}...")
+                try:
+                    from agent.document_service import DocumentService
+                    
+                    # Read file content
+                    with open(dest_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Index to vector DB
+                    DocumentService.index_document(content, new_doc.id)
+                    
+                    # Mark as indexed
+                    new_doc.in_vector_db = True
+                    print(f"Successfully indexed document ID {new_doc.id}")
+                except Exception as e:
+                    print(f"Failed to index document {doc_data['title']}: {e}")
+            
+            print(f"Added document: {doc_data['title']} (status: {doc_data['status']})")
         
         db.session.commit()
 
@@ -215,6 +236,42 @@ def seed_data():
         db.session.add(match)
         db.session.commit()
         print("Added sample retrieval match.")
+
+        # # 5. Additional data for distribution chart
+        # # We need more accurate, partial, and inaccurate matches to see a good chart
+        # import random
+        
+        # queries = [
+        #     ("Thuế suất thuế TNDN là bao nhiêu?", "Thuế suất phổ thông là 20%.", 0.92, "accurate"),
+        #     ("Cách tính thuế TNCN?", "Thuế TNCN tính theo biểu lũy tiến từng phần.", 0.88, "accurate"),
+        #     ("Khi nào phải quyết toán thuế?", "Hạn chót là ngày cuối cùng của tháng thứ 3 kể từ ngày kết thúc năm dương lịch.", 0.85, "accurate"),
+            
+        #     ("Thuế VAT hàng thiết yếu?", "Thông thường là 10%, một số mặt hàng 5%.", 0.75, "partial"),
+        #     ("Quy định về hóa đơn điện tử?", "Bắt buộc sử dụng hóa đơn điện tử từ 1/7/2022.", 0.65, "partial"),
+        #     ("Chi phí được trừ khi tính thuế?", "Các khoản chi thực tế phát sinh liên quan đến hoạt động sản xuất kinh doanh.", 0.60, "partial"),
+        #     ("Đăng ký mã số thuế ở đâu?", "Tại cơ quan thuế quản lý trực tiếp.", 0.55, "partial"),
+            
+        #     ("Lịch nghỉ tết âm lịch?", "Không có thông tin trong văn bản thuế.", 0.45, "inaccurate"),
+        #     ("Thời tiết Hà Nội hôm nay?", "Tôi chỉ trả lời về thuế.", 0.12, "inaccurate"),
+        #     ("Giá vàng hôm nay?", "Tôi không biết.", 0.05, "inaccurate"),
+        #     ("Ai là người giàu nhất Việt Nam?", "Không liên quan đến thuế.", 0.20, "inaccurate"),
+        # ]
+        
+        # for q, a, score, status in queries:
+        #     m = RetrievalMatch(
+        #         conversation_id=conv.id,
+        #         user_query=q,
+        #         chatbot_response=a,
+        #         retrieved_snippet=f"Snippet for {q}...",
+        #         document_source="sample_doc.pdf",
+        #         similarity_score=score,
+        #         status=status,
+        #         created_at=datetime.utcnow()
+        #     )
+        #     db.session.add(m)
+        
+        # db.session.commit()
+        # print(f"Added {len(queries)} additional retrieval matches.")
 
         print("Data seeding completed successfully.")
 
